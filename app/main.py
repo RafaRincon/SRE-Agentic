@@ -136,6 +136,14 @@ async def _maybe_await(value):
     return value
 
 
+def _persistable_state(state: dict) -> dict:
+    return {
+        "id": state["incident_id"],
+        "incident_id": state["incident_id"],
+        **{key: value for key, value in state.items() if key != "image_data_b64"},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -153,6 +161,7 @@ async def health():
 
 @app.post("/incident", response_model=IncidentResponse)
 async def submit_incident(
+    incident_id: str = Form(""),
     report: str = Form(...),
     reporter_name: str = Form(""),
     reporter_email: str = Form(""),
@@ -167,7 +176,7 @@ async def submit_incident(
     - reporter_email: Email of the reporter (optional)
     - image: Screenshot or log image (optional, multimodal)
     """
-    incident_id = uuid.uuid4().hex
+    incident_id = (incident_id or "").strip() or uuid.uuid4().hex
     logger.info(f"📥 New incident submitted: {incident_id}")
 
     # Build initial state
@@ -201,6 +210,19 @@ async def submit_incident(
         initial_state["raw_report"] = (
             f"Reporter: {reporter_name} ({reporter_email})\n\n"
             + initial_state["raw_report"]
+        )
+
+    initial_state["ticket"] = {}
+    initial_state["notifications"] = {}
+    initial_state["historical_context"] = {}
+
+    try:
+        db_provider.upsert_incident(_persistable_state(initial_state))
+    except Exception as e:
+        logger.error(f"❌ Failed to create initial incident document for {incident_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to register incident: {str(e)}",
         )
 
     # --- DEDUPLICATION CHECK ---
@@ -270,6 +292,12 @@ async def submit_incident(
     # can reuse it for runbook search with zero extra API calls
     if report_embedding:
         initial_state["report_embedding"] = report_embedding
+
+    initial_state["status"] = IncidentStatus.TRIAGING.value
+    try:
+        db_provider.upsert_incident(_persistable_state(initial_state))
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to persist triaging state for {incident_id}: {e}")
 
     # Thread config: each incident_id is its own checkpointer thread.
     # This means the full node-by-node state is persisted in Cosmos
@@ -354,6 +382,7 @@ async def get_incident(incident_id: str):
         thread_config = {"configurable": {"thread_id": incident_id}}
         snapshot = graph.get_state(thread_config)
         if snapshot and snapshot.values:
+            snapshot_values = snapshot.values
             # Attach lightweight checkpoint metadata (exclude large fields)
             incident["_checkpoint"] = {
                 "next_nodes": list(snapshot.next) if snapshot.next else [],
@@ -362,8 +391,8 @@ async def get_incident(incident_id: str):
                     if snapshot.metadata and snapshot.metadata.get("writes")
                     else None
                 ),
-                "status": snapshot.values.get("status", ""),
-                "final_severity": snapshot.values.get("final_severity", ""),
+                "status": snapshot_values.get("status", ""),
+                "final_severity": snapshot_values.get("final_severity", ""),
             }
     except Exception:
         pass  # Checkpoint enrichment is best-effort

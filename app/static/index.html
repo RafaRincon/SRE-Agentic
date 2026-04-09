@@ -69,6 +69,18 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
 .sidebar-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px}.sidebar-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
 .ps{display:flex;gap:10px;margin-bottom:11px}.ps:last-child{margin-bottom:0}.ps-n{width:20px;height:20px;border-radius:50%;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
 .ps-txt{font-size:12px;color:var(--text3);line-height:1.45}.ps-txt strong{color:var(--text);font-weight:500}.dedup-note{font-size:11px;color:var(--text4);line-height:1.5;padding:10px 12px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-top:10px}
+.submit-status-card{display:none}
+.submit-status-card.show{display:block}
+.submit-status-meta{font-family:'JetBrains Mono','Inter',monospace;font-size:11px;color:var(--text4);margin-bottom:10px}
+.submit-status-copy{font-size:12px;color:var(--text3);line-height:1.5;margin-bottom:14px}
+.submit-status-list{display:flex;flex-direction:column;gap:10px}
+.submit-status-item{display:flex;gap:10px;align-items:flex-start}
+.submit-status-dot{width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--bg2);color:var(--text4);display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;flex-shrink:0;margin-top:1px}
+.submit-status-item.done .submit-status-dot{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.submit-status-item.active .submit-status-dot{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px rgba(77,143,255,.12)}
+.submit-status-body{min-width:0}
+.submit-status-label{font-size:12px;color:var(--text2);font-weight:500}
+.submit-status-hint{font-size:11px;color:var(--text4);margin-top:2px;line-height:1.4}
 .sub-tabs{display:none;gap:0;margin-bottom:22px;border-bottom:1px solid var(--border)}.sub-tab{font-size:13px;font-weight:400;padding:10px 22px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
 .sub-tab:hover{color:var(--text2)}.sub-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}.sub-screen{display:none}.sub-screen.active{display:block}
 .banner{margin-bottom:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:12px;display:none}.banner.show{display:block}.banner.error{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}.banner.warn{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber)}.banner.info{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
@@ -81,7 +93,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
 .step-label{font-size:10px;color:var(--text4);margin-top:6px;text-align:center;line-height:1.3}.step-item.done .step-label{color:var(--accent)}.progress-note{font-size:12px;color:var(--text3);text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
 .analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.analysis-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px}.ac-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .ac-badge{font-size:9px;font-weight:600;padding:3px 9px;border-radius:99px;letter-spacing:.05em;text-transform:uppercase}.ac-badge.diag{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.ac-badge.verif{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ac-title{font-size:12px;font-weight:500;color:var(--text2)}
-.info-row{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}.info-row:last-child{border-bottom:none}.ir-k{color:var(--text3)}.ir-v{color:var(--text);font-weight:500;text-align:right;max-width:55%}
+.info-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}.info-row:last-child{border-bottom:none}.ir-k{color:var(--text3);flex:0 0 132px}.ir-v{color:var(--text);font-weight:500;text-align:right;flex:1;min-width:0;max-width:none;overflow-wrap:anywhere;word-break:break-word}
 .cause-item{padding:10px 0;border-bottom:1px solid var(--border)}.cause-item:last-child{border-bottom:none}.cause-tags{display:flex;align-items:center;gap:6px;margin-bottom:5px}.ctag{font-size:9px;font-weight:600;padding:2px 8px;border-radius:99px;letter-spacing:.04em}.ctag.confirmed{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ctag.possible{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.ctag.discarded{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
 .ctag.recurring{background:var(--violet-bg);color:var(--violet);border:1px solid var(--violet-border)}
 .cause-text{font-size:12px;color:var(--text2);line-height:1.4}.cause-note{font-size:10px;color:var(--text4);margin-top:3px}
@@ -92,7 +104,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
 .summary-wrap{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px}.summary-text{font-size:13px;color:var(--text3);line-height:1.65}.summary-text strong{color:var(--text);font-weight:600}.summary-text p{margin:0 0 12px}.summary-text p:last-child{margin-bottom:0}.summary-text ul,.summary-text ol{margin:0 0 14px 20px;padding:0}.summary-text li{margin:0 0 6px}.summary-text code{font-family:'JetBrains Mono','Inter',monospace;font-size:.92em;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:1px 5px;color:var(--text)}
 .runbook-bar{display:flex;gap:12px;align-items:flex-start;background:var(--green-bg);border:1px solid var(--green-border);border-radius:8px;padding:12px 14px;margin-top:12px}.rb-dot{width:20px;height:20px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}.rb-dot svg{width:10px;height:10px;stroke:#fff;stroke-width:2.5;fill:none;stroke-linecap:round}.rb-text{font-size:12px;color:var(--green);line-height:1.45}.rb-text strong{font-weight:600}
 .precedent-item{padding:10px 0;border-bottom:1px solid var(--border)}.precedent-item:last-child{border-bottom:none}.precedent-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}.precedent-id{font-family:'JetBrains Mono','Inter',monospace;font-size:10px;color:var(--text4)}.precedent-resolution{font-size:12px;color:var(--text2);line-height:1.45}.precedent-meta{font-size:10px;color:var(--text4);margin-top:4px}
-.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.notif-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}.notif-row:last-child{border-bottom:none}.nd{width:6px;height:6px;border-radius:50%;flex-shrink:0}.nd.ok{background:var(--green)}.nd.pending{background:var(--amber)}.nk{color:var(--text3);min-width:96px}.nv{color:var(--text);font-weight:500}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.notif-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}.notif-row:last-child{border-bottom:none}.nd{width:6px;height:6px;border-radius:50%;flex-shrink:0}.nd.ok{background:var(--green)}.nd.pending{background:var(--amber)}.nk{color:var(--text3);min-width:96px}.nv{color:var(--text);font-weight:500}
 .hidden{display:none !important}.empty-state{padding:28px;border:1px dashed var(--border2);border-radius:12px;text-align:center;background:var(--bg)}.empty-state h3{font-family:'Syne',sans-serif;color:var(--text);font-size:18px;margin-bottom:6px}.empty-state p{color:var(--text4)}
 .dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.dash-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)}.dash-sub{font-size:12px;color:var(--text4);margin-top:2px}
 .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.met{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.met::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}.met.m-red::before{background:var(--red)}.met.m-amber::before{background:var(--amber)}.met.m-green::before{background:var(--green)}.met.m-blue::before{background:var(--accent)}
@@ -193,13 +205,19 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
           </div>
         </div>
         <div>
-          <div class="sidebar-card">
+          <div class="sidebar-card" id="submit-guide-card">
             <div class="sidebar-title">What happens after you submit</div>
             <div class="ps"><div class="ps-n">1</div><div class="ps-txt"><strong>We understand the problem</strong> — we analyze your description and identify which part of the store is affected and how many users are impacted.</div></div>
             <div class="ps"><div class="ps-n">2</div><div class="ps-txt"><strong>We search for the real cause</strong> — we inspect the codebase and propose explanations, each backed by concrete evidence.</div></div>
             <div class="ps"><div class="ps-n">3</div><div class="ps-txt"><strong>We verify before reporting</strong> — we only include causes that actually exist in the code. Anything without evidence is discarded.</div></div>
             <div class="ps"><div class="ps-n">4</div><div class="ps-txt"><strong>We notify the team</strong> with all the context needed to act, and we notify you once it is resolved.</div></div>
             <div class="dedup-note">If someone already reported the same issue, we automatically merge the reports so the team does not work on duplicates.</div>
+          </div>
+          <div class="sidebar-card submit-status-card" id="submit-status-card">
+            <div class="sidebar-title">Processing report</div>
+            <div class="submit-status-meta" id="submit-status-meta">Preparing incident...</div>
+            <div class="submit-status-copy" id="submit-status-copy">We are registering your report and starting the incident workflow.</div>
+            <div class="submit-status-list" id="submit-status-list"></div>
           </div>
         </div>
       </div>
@@ -237,13 +255,44 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
           </div>
         </div>
 
+        <div class="bottom-grid" id="actions-section">
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Created ticket</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Number</span><span class="nv" id="ticket-id">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Assigned to</span><span class="nv" id="ticket-team">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Priority</span><span class="nv" id="ticket-priority">-</span></div>
+            <button class="btn-secondary hidden" id="ticket-link-btn" style="margin-top:12px" onclick="openTicket()">Open ticket</button>
+          </div>
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Notifications</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Technical team</span><span class="nv" id="notify-team">Pending</span></div>
+            <div class="notif-row"><span class="nd pending" id="reporter-dot"></span><span class="nk">Reporter</span><span class="nv" id="notify-reporter">On resolution</span></div>
+            <div class="notif-row hidden" id="notify-channel-row"><span class="nd ok"></span><span class="nk">Channel</span><span class="nv" id="notify-channel">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Estimated time</span><span class="nv" id="eta-value">No estimate</span></div>
+          </div>
+        </div>
+
+        <div class="summary-wrap" id="summary-section">
+          <div class="card-title" style="margin-bottom:12px">Analysis summary</div>
+          <div class="summary-text" id="summary-text"></div>
+          <div class="runbook-bar hidden" id="runbook-bar">
+            <div class="rb-dot"><svg viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/><path d="M3.5 4h3M3.5 6h2"/></svg></div>
+            <div class="rb-text" id="runbook-text"></div>
+          </div>
+        </div>
+
+        <div class="summary-wrap hidden" id="blast-section">
+          <div class="card-title" style="margin-bottom:12px">Affected services</div>
+          <div class="summary-text" id="blast-text"></div>
+        </div>
+
         <div class="analysis-grid" id="analysis-grid">
           <div class="analysis-card">
             <div class="ac-header">
               <span class="ac-badge diag">Diagnosis</span>
               <span class="ac-title">What did we find?</span>
             </div>
-            <div class="info-row"><span class="ir-k">Affected area</span><span class="ir-v" id="diag-service">-</span></div>
+            <div class="info-row"><span class="ir-k">Affected services</span><span class="ir-v" id="diag-service">-</span></div>
             <div class="info-row"><span class="ir-k">Impact</span><span class="ir-v" id="diag-impact">-</span></div>
             <div class="info-row" id="diag-users-row"><span class="ir-k">Users affected</span><span class="ir-v" id="diag-users">-</span></div>
             <div class="info-row"><span class="ir-k">Failure timing</span><span class="ir-v" id="diag-created">-</span></div>
@@ -267,40 +316,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
           </div>
         </div>
 
-        <div class="summary-wrap" id="summary-section">
-          <div class="card-title" style="margin-bottom:12px">Analysis summary</div>
-          <div class="summary-text" id="summary-text"></div>
-          <div class="runbook-bar hidden" id="runbook-bar">
-            <div class="rb-dot"><svg viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/><path d="M3.5 4h3M3.5 6h2"/></svg></div>
-            <div class="rb-text" id="runbook-text"></div>
-          </div>
-        </div>
-
-        <div class="summary-wrap hidden" id="blast-section">
-          <div class="card-title" style="margin-bottom:12px">Affected services</div>
-          <div class="summary-text" id="blast-text"></div>
-        </div>
-
         <div class="summary-wrap hidden" id="precedents-section">
           <div class="card-title" style="margin-bottom:12px">Historical precedents</div>
           <div id="precedents-list"></div>
-        </div>
-
-        <div class="bottom-grid" id="actions-section">
-          <div class="card card-sm" style="margin-bottom:0">
-            <div class="card-title">Created ticket</div>
-            <div class="notif-row"><span class="nd ok"></span><span class="nk">Number</span><span class="nv" id="ticket-id">-</span></div>
-            <div class="notif-row"><span class="nd ok"></span><span class="nk">Assigned to</span><span class="nv" id="ticket-team">-</span></div>
-            <div class="notif-row"><span class="nd ok"></span><span class="nk">Priority</span><span class="nv" id="ticket-priority">-</span></div>
-            <button class="btn-secondary hidden" id="ticket-link-btn" style="margin-top:12px" onclick="openTicket()">Open ticket</button>
-          </div>
-          <div class="card card-sm" style="margin-bottom:0">
-            <div class="card-title">Notifications</div>
-            <div class="notif-row"><span class="nd ok"></span><span class="nk">Technical team</span><span class="nv" id="notify-team">Pending</span></div>
-            <div class="notif-row"><span class="nd pending" id="reporter-dot"></span><span class="nk">Reporter</span><span class="nv" id="notify-reporter">On resolution</span></div>
-            <div class="notif-row hidden" id="notify-channel-row"><span class="nd ok"></span><span class="nk">Channel</span><span class="nv" id="notify-channel">-</span></div>
-            <div class="notif-row"><span class="nd ok"></span><span class="nk">Estimated time</span><span class="nv" id="eta-value">No estimate</span></div>
-          </div>
         </div>
       </div>
     </div>
@@ -362,7 +380,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min
 <script>
 const TRACKER_STEPS=["Report<br>received","Code<br>analyzed","Causes<br>verified","Ticket<br>created","Team<br>notified","Issue<br>resolved"];
 const STATUS_STEP_COUNT={RECEIVED:1,TRIAGING:2,TRIAGED:3,TICKET_CREATED:4,TEAM_NOTIFIED:5,REPORTER_NOTIFIED:6};
-const state={currentMain:"reports",currentSub:"new",currentFilter:"all",currentSort:"newest",selectedSeverity:"Moderate",lastIncident:null,incidents:[],submitProgressTimer:null,causePage:0,incidentSearch:"",resolvingIncidentId:""};
+const TRACKER_STATUS_MESSAGES={RECEIVED:"We registered the report and queued the pipeline.",TRIAGING:"We are analyzing the report and grounding likely failure paths in the codebase.",TRIAGED:"We verified the likely causes and are preparing the action package.",TICKET_CREATED:"A ticket was created and is being routed with the current evidence.",TEAM_NOTIFIED:"The technical team already has the context needed to act.",REPORTER_NOTIFIED:"The incident is resolved and the reporter was already notified.",RESOLVED:"The incident is resolved.",DUPLICATE:"This report was merged with an existing incident to avoid duplicate work."};
+const SUBMIT_STEPS=[{status:"RECEIVED",label:"Report received",hint:"The incident id is reserved and the workflow is starting."},{status:"TRIAGING",label:"Code analyzed",hint:"The agent is inspecting the report and checking the codebase."},{status:"TRIAGED",label:"Causes verified",hint:"Only grounded findings move forward."},{status:"TICKET_CREATED",label:"Ticket created",hint:"Ownership and routing are being attached."},{status:"TEAM_NOTIFIED",label:"Team notified",hint:"The response package is ready for action."}];
+const state={currentMain:"reports",currentSub:"new",currentFilter:"all",currentSort:"newest",selectedSeverity:"Moderate",lastIncident:null,incidents:[],submitProgressTimer:null,incidentPollTimer:null,causePage:0,incidentSearch:"",resolvingIncidentId:"",pendingIncidentId:""};
 function $(id){return document.getElementById(id)}
 function showBanner(message,type="info",target="global-banner"){const banner=$(target);banner.textContent=message;banner.className=`banner show ${type}`}
 function hideBanner(target="global-banner"){const banner=$(target);banner.className="banner";banner.textContent=""}
@@ -377,8 +397,15 @@ function updateSelectedFile(){const file=$("file-upload").files[0];$("file-name"
 function initSeverityPicker(){document.querySelectorAll(".sev-opt").forEach((node)=>{node.addEventListener("click",()=>{document.querySelectorAll(".sev-opt").forEach((item)=>item.classList.remove("active"));node.classList.add("active");state.selectedSeverity=node.dataset.severity})})}
 function sanitizeInput(text){const clean=text.trim();if(clean.length>2000){showBanner("The report is quite long. Consider summarizing it to under 2000 characters.","warn")}return clean}
 function validateForm(){const report=$("report-text").value.trim();const email=$("reporter-email").value.trim();if(report.length<10){showBanner("Please describe the issue in more detail.","error");return false}if(email&&!email.includes("@")){showBanner("The email address does not look valid.","error");return false}hideBanner();return true}
+function buildClientIncidentId(){if(window.crypto?.randomUUID)return window.crypto.randomUUID().replaceAll("-","");return `inc${Date.now().toString(16)}${Math.random().toString(16).slice(2,10)}`}
+function getLiveIncidentStatus(incident){return String(incident?._checkpoint?.status||incident?.status||"RECEIVED").toUpperCase()}
+function stopSubmitPolling(){if(state.incidentPollTimer){window.clearTimeout(state.incidentPollTimer);state.incidentPollTimer=null}}
+function setSubmitTrackerVisible(isVisible){$("submit-guide-card").classList.toggle("hidden",isVisible);$("submit-status-card").classList.toggle("show",isVisible)}
+function renderSubmitTracker(status,incidentId=""){const currentStatus=String(status||"RECEIVED").toUpperCase();const currentIndex=Math.max(SUBMIT_STEPS.findIndex((step)=>step.status===currentStatus),0);$("submit-status-meta").textContent=incidentId?`Incident #${incidentId}`:"Preparing incident...";$("submit-status-copy").textContent=TRACKER_STATUS_MESSAGES[currentStatus]||TRACKER_STATUS_MESSAGES.RECEIVED;const list=$("submit-status-list");list.innerHTML="";SUBMIT_STEPS.forEach((step,index)=>{const item=document.createElement("div");const isDone=index<currentIndex;const isActive=index===currentIndex;item.className=`submit-status-item${isDone?" done":""}${isActive?" active":""}`;item.innerHTML=`<div class="submit-status-dot">${isDone?"✓":index+1}</div><div class="submit-status-body"><div class="submit-status-label">${step.label}</div><div class="submit-status-hint">${step.hint}</div></div>`;list.appendChild(item)})}
+async function pollIncidentProgress(incidentId){try{const response=await fetch(`/incident/${incidentId}`);if(response.status===404){state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),1500);return null}const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be loaded.");const incident=normalizeIncident(data);renderSubmitTracker(getLiveIncidentStatus(incident),incidentId);state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),2000);return incident}catch(_error){state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),2500);return null}}
+function resetSubmitTracker(){stopSubmitPolling();state.pendingIncidentId="";setSubmitTrackerVisible(false);renderSubmitTracker("RECEIVED","")}
 function setSubmitProgress(isSubmitting){const panel=$("submit-progress");const fill=$("submit-progress-fill");const title=$("submit-progress-title");const copy=$("submit-progress-copy");if(!panel||!fill||!title||!copy)return;if(state.submitProgressTimer){window.clearInterval(state.submitProgressTimer);state.submitProgressTimer=null}if(!isSubmitting){panel.classList.remove("show");fill.style.width="22%";title.textContent="Sending report to the agent";copy.textContent="We are validating the report and preparing the analysis pipeline.";return}panel.classList.add("show");title.textContent="Analyzing report";copy.textContent="The agent is extracting signals, checking the codebase, and preparing your analysis.";const stops=[28,41,57,69,78,86,92];let index=0;fill.style.width=`${stops[index]}%`;state.submitProgressTimer=window.setInterval(()=>{index=Math.min(index+1,stops.length-1);fill.style.width=`${stops[index]}%`;if(index===stops.length-1&&state.submitProgressTimer){window.clearInterval(state.submitProgressTimer);state.submitProgressTimer=null}},650)}
-async function submitIncident(){if(!validateForm())return;const reportText=sanitizeInput($("report-text").value);const perceived=state.selectedSeverity?`[Perceived severity: ${state.selectedSeverity}] `:"";const form=new FormData();form.append("reporter_name",$("reporter-name").value.trim());form.append("reporter_email",$("reporter-email").value.trim());form.append("report",`${perceived}${reportText}`);const file=$("file-upload").files[0];if(file)form.append("image",file);const button=$("submit-btn");button.disabled=true;button.textContent="Analyzing...";setSubmitProgress(true);hideBanner();try{const response=await fetch("/incident",{method:"POST",body:form});const data=await response.json();if(!response.ok){throw new Error(data.detail||"The incident could not be processed.")}localStorage.setItem("last_incident_id",data.incident_id);const incident=normalizeIncident({...data,raw_report:reportText,created_at:new Date().toISOString(),_reporter_name:$("reporter-name").value.trim(),_reporter_email:$("reporter-email").value.trim()});state.lastIncident=incident;renderIncident(incident);goSub("status");await loadDashboard(true)}catch(error){showBanner(error.message||"An error occurred while sending the report.","error")}finally{setSubmitProgress(false);button.disabled=false;button.textContent="Send report to the agent →"}}
+async function submitIncident(){if(!validateForm())return;const reportText=sanitizeInput($("report-text").value);const perceived=state.selectedSeverity?`[Perceived severity: ${state.selectedSeverity}] `:"";const reporterName=$("reporter-name").value.trim();const reporterEmail=$("reporter-email").value.trim();const incidentId=buildClientIncidentId();const form=new FormData();form.append("incident_id",incidentId);form.append("reporter_name",reporterName);form.append("reporter_email",reporterEmail);form.append("report",`${perceived}${reportText}`);const file=$("file-upload").files[0];if(file)form.append("image",file);const button=$("submit-btn");button.disabled=true;button.textContent="Processing...";hideBanner();state.pendingIncidentId=incidentId;setSubmitTrackerVisible(true);renderSubmitTracker("RECEIVED",incidentId);stopSubmitPolling();const responsePromise=fetch("/incident",{method:"POST",body:form});pollIncidentProgress(incidentId);try{const response=await responsePromise;const data=await response.json();if(!response.ok){throw new Error(data.detail||"The incident could not be processed.")}stopSubmitPolling();localStorage.setItem("last_incident_id",data.incident_id);const incident=normalizeIncident({...data,raw_report:[reporterName||reporterEmail?`Reporter: ${reporterName} (${reporterEmail})`:"",`${perceived}${reportText}`].filter(Boolean).join("\n\n"),created_at:new Date().toISOString(),_reporter_name:reporterName,_reporter_email:reporterEmail});state.lastIncident=incident;renderIncident(incident);await loadDashboard(true);goSub("status")}catch(error){showBanner(error.message||"An error occurred while sending the report.","error")}finally{resetSubmitTracker();button.disabled=false;button.textContent="Send report to the agent →"}}
 async function loadIncidentDetails(incidentId){if(!incidentId)return;try{const response=await fetch(`/incident/${incidentId}`);const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be loaded.");state.lastIncident=normalizeIncident(data);renderIncident(state.lastIncident)}catch(error){showBanner(error.message||"The analysis could not be loaded.","error")}}
 function renderIncident(incident){if(!incident)return;$("empty-status").classList.add("hidden");$("status-content").classList.remove("hidden");const severity=mapSeverity(incident.final_severity||"MEDIUM");$("hero-meta").textContent=`Report #${incident.incident_id||"N/A"} · ${formatStatusLabel(incident.status||"RECEIVED")} · ${formatAbsoluteDate(incident.created_at)}`;$("hero-title").textContent=buildIncidentTitle(incident);$("hero-reporter").textContent=incident.duplicate_of?`Automatically merged with ${incident.duplicate_of}`:`Reported by ${incident._reporter_name||extractReporterName(incident.raw_report)||"User"} · ${incident._reporter_email||extractReporterEmail(incident.raw_report)||"no email"}`;const badge=$("hero-severity");badge.textContent=severity.label;badge.className=`sev-badge ${severity.className}`;$("diag-service").textContent=getAffectedService(incident);$("diag-impact").textContent=getImpactLabel(incident);$("diag-blast").textContent=getBlastRadiusLabel(incident);$("diag-created").textContent=formatRelativeTime(incident.created_at);$("diag-severity").textContent=severity.label;$("diag-severity").style.color=severity.colorVar?`var(${severity.colorVar})`:"";renderTracker(incident.status,incident._reporter_email||extractReporterEmail(incident.raw_report));renderCauses(incident);$("summary-text").innerHTML=renderSummaryMarkdown(incident.triage_summary);renderRunbook(incident.suggested_runbooks||[]);renderTicket(incident);const isDuplicate=Boolean(incident.duplicate_of);$("duplicate-banner").classList.toggle("hidden",!isDuplicate);$("tracker-wrap").classList.toggle("hidden",isDuplicate);$("analysis-grid").classList.toggle("hidden",isDuplicate)}
 function buildIncidentTitle(incident){if(incident.duplicate_of)return"Duplicate report detected and merged";const raw=incident.raw_report||"";const clean=raw.replace(/^Reporter:.*?\n\n/s,"").trim();return clean?clean.slice(0,85):"Incident analysis"}
