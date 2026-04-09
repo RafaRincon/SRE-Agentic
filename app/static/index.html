@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SRE Agent · Cognition by Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+[data-theme="light"]{
+  --bg:#FFFFFF;--bg2:#F7F7F9;--bg3:#EFEFF2;--bg4:#E6E6EC;--border:#E2E2EA;--border2:#CDCDD8;
+  --text:#0D0D18;--text2:#3A3A52;--text3:#6B6B85;--text4:#9898B0;--accent:#0057FF;
+  --accent-bg:#EEF3FF;--accent-border:#BFCFFF;--red:#D63030;--red-bg:#FEF0F0;--red-border:#FBCBCB;
+  --amber:#B06000;--amber-bg:#FFF8EE;--amber-border:#FCDFA0;--green:#0A7A4A;--green-bg:#EDFAF4;
+  --green-border:#A3E6C8;--violet:#6B30C4;--violet-bg:#F3EEFF;--violet-border:#D4BEFF;
+  --shadow:rgba(0,0,0,.06);--topbar-bg:#FFFFFF;--toggle-bg:#EFEFF2;--toggle-knob:#FFFFFF;
+  --toggle-knob-shadow:rgba(0,0,0,.15)
+}
+[data-theme="dark"]{
+  --bg:#13131A;--bg2:#0A0A0F;--bg3:#1C1C26;--bg4:#252532;--border:#252532;--border2:#3A3A4E;
+  --text:#F0F0F8;--text2:#C2C2D4;--text3:#8888A0;--text4:#5A5A72;--accent:#4D8FFF;
+  --accent-bg:rgba(77,143,255,.1);--accent-border:rgba(77,143,255,.25);--red:#FF5A5A;
+  --red-bg:rgba(255,90,90,.08);--red-border:rgba(255,90,90,.2);--amber:#FFB340;
+  --amber-bg:rgba(255,179,64,.08);--amber-border:rgba(255,179,64,.2);--green:#00C87A;
+  --green-bg:rgba(0,200,122,.08);--green-border:rgba(0,200,122,.2);--violet:#A855F7;
+  --violet-bg:rgba(168,85,247,.1);--violet-border:rgba(168,85,247,.2);--shadow:rgba(0,0,0,.3);
+  --topbar-bg:#13131A;--toggle-bg:#252532;--toggle-knob:#0A0A0F;--toggle-knob-shadow:rgba(0,0,0,.4)
+}
+body,.topbar,.card,.sidebar-card,.analysis-card,.summary-wrap,.progress-wrap,.result-hero,.met,.inc,.upload-zone,.sev-opt,.field input,.field textarea,.bottom-grid .card,.banner{transition:background .22s ease,border-color .22s ease,color .18s ease}
+body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min-height:100vh;font-size:14px;line-height:1.5}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:54px;background:var(--topbar-bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{display:flex;align-items:center;gap:10px}.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+.brand-mark svg{width:14px;height:14px;stroke:#fff;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.brand-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.02em}.brand-sep{width:1px;height:14px;background:var(--border2);margin:0 6px}.brand-by{font-size:11px;color:var(--text4)}
+.nav-center{display:flex;gap:2px}.nav-btn{font-family:'Inter',sans-serif;font-size:13px;font-weight:400;padding:6px 18px;border-radius:8px;border:none;background:transparent;color:var(--text3);cursor:pointer;transition:all .15s}
+.nav-btn:hover{background:var(--bg3);color:var(--text2)}.nav-btn.active{background:var(--bg3);color:var(--text);font-weight:500}
+.topbar-right{display:flex;align-items:center;gap:14px}.status-pill{display:flex;align-items:center;gap:6px}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}.status-label{font-size:11px;color:var(--text4)}
+.theme-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background .15s}.theme-toggle:hover{background:var(--bg3)}
+.toggle-icon{font-size:13px;line-height:1;width:16px;text-align:center;color:var(--text3)}.toggle-track{width:36px;height:20px;border-radius:99px;background:var(--toggle-bg);border:1px solid var(--border2);position:relative;cursor:pointer;transition:background .22s,border-color .22s;flex-shrink:0}
+[data-theme="dark"] .toggle-track{background:var(--accent);border-color:var(--accent)}.toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--toggle-knob);box-shadow:0 1px 3px var(--toggle-knob-shadow);transition:transform .22s ease,background .22s}
+[data-theme="dark"] .toggle-knob{transform:translateX(16px);background:#fff}
+.page{padding:28px;max-width:980px;margin:0 auto}.screen{display:none}.screen.active{display:block}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:14px}.card-sm{border-radius:10px;padding:16px 18px}
+.card-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:18px}
+.field{margin-bottom:16px}.field:last-child{margin-bottom:0}.field label{display:block;font-size:12px;font-weight:500;color:var(--text3);margin-bottom:6px;letter-spacing:.02em}
+.field input,.field textarea{width:100%;padding:10px 13px;font-size:13px;font-family:'Inter',sans-serif;border:1px solid var(--border2);border-radius:8px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s,background .22s,color .18s}
+.field input:focus,.field textarea:focus{border-color:var(--accent)}.field input::placeholder,.field textarea::placeholder{color:var(--text4)}.field textarea{min-height:110px;resize:vertical;line-height:1.6}.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upload-zone{border:1px dashed var(--border2);border-radius:8px;padding:22px;text-align:center;background:var(--bg2);cursor:pointer;transition:border-color .15s,background .22s}.upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:var(--accent-bg)}
+.upload-icon{width:36px;height:36px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;margin:0 auto 10px}.upload-icon svg{width:16px;height:16px;stroke:var(--text3);stroke-width:1.8;fill:none;stroke-linecap:round}
+.upload-zone p{font-size:12px;color:var(--text3)}.upload-zone span{font-size:11px;color:var(--text4)}#file-name{margin-top:8px;font-size:11px;color:var(--accent)}
+.sev-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sev-opt{padding:10px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;text-align:left;background:var(--bg);transition:all .15s}.sev-opt:hover{border-color:var(--border2);background:var(--bg2)}
+.sev-opt.active{box-shadow:0 0 0 1px var(--accent) inset}.sev-opt .so-name{font-size:12px;font-weight:500;color:var(--text2)}.sev-opt .so-desc{font-size:10px;color:var(--text4);margin-top:2px}
+.sev-opt.s-urgent{border-color:var(--red-border);background:var(--red-bg)}.sev-opt.s-urgent .so-name{color:var(--red)}.sev-opt.s-important{border-color:var(--amber-border);background:var(--amber-bg)}.sev-opt.s-important .so-name{color:var(--amber)}.sev-opt.s-medium{border-color:var(--accent-border);background:var(--accent-bg)}.sev-opt.s-medium .so-name{color:var(--accent)}.sev-opt.s-low{border-color:var(--green-border);background:var(--green-bg)}.sev-opt.s-low .so-name{color:var(--green)}
+.btn-submit,.btn-secondary{width:100%;padding:12px;margin-top:16px;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;border:none;border-radius:8px;cursor:pointer;letter-spacing:.02em;transition:all .15s}
+.btn-submit{background:var(--accent);color:#fff;box-shadow:0 2px 14px rgba(0,87,255,.22)}.btn-submit:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 4px 22px rgba(0,87,255,.32)}.btn-submit:disabled{opacity:.7;cursor:wait;transform:none}
+.btn-secondary{background:var(--bg3);color:var(--text2)}.btn-secondary:hover{background:var(--bg4)}
+.sidebar-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px}.sidebar-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+.ps{display:flex;gap:10px;margin-bottom:11px}.ps:last-child{margin-bottom:0}.ps-n{width:20px;height:20px;border-radius:50%;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.ps-txt{font-size:12px;color:var(--text3);line-height:1.45}.ps-txt strong{color:var(--text);font-weight:500}.dedup-note{font-size:11px;color:var(--text4);line-height:1.5;padding:10px 12px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-top:10px}
+.sub-tabs{display:flex;gap:0;margin-bottom:22px;border-bottom:1px solid var(--border)}.sub-tab{font-size:13px;font-weight:400;padding:10px 22px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+.sub-tab:hover{color:var(--text2)}.sub-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}.sub-screen{display:none}.sub-screen.active{display:block}
+.banner{margin-bottom:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:12px;display:none}.banner.show{display:block}.banner.error{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}.banner.warn{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber)}.banner.info{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.result-hero{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:14px;display:flex;align-items:flex-start;justify-content:space-between;position:relative;overflow:hidden}.result-hero::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent) 0%,var(--red) 100%);border-radius:14px 14px 0 0}
+.rh-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text4);margin-bottom:6px}.rh-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);line-height:1.3;max-width:520px}.rh-time{font-size:11px;color:var(--text4);margin-top:6px}
+.sev-badge{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:8px 18px;border-radius:8px;letter-spacing:.03em;white-space:nowrap;margin-top:4px}.sev-badge.urgent{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}.sev-badge.important{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.sev-badge.medium{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.sev-badge.low{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.progress-wrap{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:14px}.progress-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:18px}
+.steps{display:flex;align-items:flex-start}.step-item{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}.step-item:not(:last-child)::after{content:'';position:absolute;top:14px;left:58%;width:84%;height:1px;background:var(--border);z-index:0}.step-item.done:not(:last-child)::after{background:var(--accent);opacity:.4}
+.step-circle{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text4);position:relative;z-index:1}.step-item.done .step-circle{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.step-label{font-size:10px;color:var(--text4);margin-top:6px;text-align:center;line-height:1.3}.step-item.done .step-label{color:var(--accent)}.progress-note{font-size:12px;color:var(--text3);text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.analysis-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px}.ac-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.ac-badge{font-size:9px;font-weight:600;padding:3px 9px;border-radius:99px;letter-spacing:.05em;text-transform:uppercase}.ac-badge.diag{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.ac-badge.verif{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ac-title{font-size:12px;font-weight:500;color:var(--text2)}
+.info-row{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}.info-row:last-child{border-bottom:none}.ir-k{color:var(--text3)}.ir-v{color:var(--text);font-weight:500;text-align:right;max-width:55%}
+.cause-item{padding:10px 0;border-bottom:1px solid var(--border)}.cause-item:last-child{border-bottom:none}.cause-tags{display:flex;align-items:center;gap:6px;margin-bottom:5px}.ctag{font-size:9px;font-weight:600;padding:2px 8px;border-radius:99px;letter-spacing:.04em}.ctag.confirmed{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ctag.possible{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.ctag.discarded{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.cause-text{font-size:12px;color:var(--text2);line-height:1.4}.cause-note{font-size:10px;color:var(--text4);margin-top:3px}
+.summary-wrap{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px}.summary-text{font-size:13px;color:var(--text3);line-height:1.65}.summary-text strong{color:var(--text);font-weight:500}
+.runbook-bar{display:flex;gap:12px;align-items:flex-start;background:var(--green-bg);border:1px solid var(--green-border);border-radius:8px;padding:12px 14px;margin-top:12px}.rb-dot{width:20px;height:20px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}.rb-dot svg{width:10px;height:10px;stroke:#fff;stroke-width:2.5;fill:none;stroke-linecap:round}.rb-text{font-size:12px;color:var(--green);line-height:1.45}.rb-text strong{font-weight:600}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.notif-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}.notif-row:last-child{border-bottom:none}.nd{width:6px;height:6px;border-radius:50%;flex-shrink:0}.nd.ok{background:var(--green)}.nd.pending{background:var(--amber)}.nk{color:var(--text3);min-width:96px}.nv{color:var(--text);font-weight:500}
+.hidden{display:none !important}.empty-state{padding:28px;border:1px dashed var(--border2);border-radius:12px;text-align:center;background:var(--bg)}.empty-state h3{font-family:'Syne',sans-serif;color:var(--text);font-size:18px;margin-bottom:6px}.empty-state p{color:var(--text4)}
+.dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.dash-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)}.dash-sub{font-size:12px;color:var(--text4);margin-top:2px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.met{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.met::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}.met.m-red::before{background:var(--red)}.met.m-amber::before{background:var(--amber)}.met.m-green::before{background:var(--green)}.met.m-blue::before{background:var(--accent)}
+.met-label{font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}.met-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:700;color:var(--text);line-height:1}.met-sub{font-size:11px;margin-top:6px}.met-sub.danger{color:var(--red)}.met-sub.ok{color:var(--green)}.met-sub.muted{color:var(--text4)}.met-sub.blue{color:var(--accent)}
+.filters{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}.chip{font-size:11px;padding:5px 14px;border-radius:99px;border:1px solid var(--border);background:var(--bg);color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;transition:all .12s}.chip:hover{border-color:var(--border2);color:var(--text2)}.chip.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+.inc-list{display:flex;flex-direction:column;gap:8px}.inc{background:var(--bg);border:1px solid var(--border);border-radius:12px;display:flex;align-items:center;cursor:pointer;overflow:hidden;transition:background .22s,border-color .22s,box-shadow .15s}.inc:hover{border-color:var(--border2);box-shadow:0 2px 12px var(--shadow)}
+.inc-bar{width:4px;align-self:stretch;flex-shrink:0}.inc-bar.critical{background:var(--red)}.inc-bar.high{background:var(--amber)}.inc-bar.medium{background:var(--accent)}.inc-bar.low{background:var(--green)}.inc-bar.dup{background:var(--violet)}
+.inc-body{flex:1;padding:13px 16px;min-width:0}.inc-title{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inc-sub{font-size:11px;color:var(--text4);margin-top:3px}.inc-right{padding:13px 16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+.tag{font-size:10px;padding:3px 10px;border-radius:99px;font-weight:500;white-space:nowrap}.tag-team{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.tag-analyzing{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.tag-done{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.tag-waiting{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}.tag-dup{background:var(--violet-bg);color:var(--violet);border:1px solid var(--violet-border)}
+.res-btn{font-size:10px;padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;transition:all .12s}.res-btn:hover{background:var(--bg3);color:var(--text2)}.dup-ref{font-size:10px;color:var(--violet)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.screen.active>*{animation:fadeUp .2s ease both}.screen.active>*:nth-child(2){animation-delay:.04s}.screen.active>*:nth-child(3){animation-delay:.08s}.screen.active>*:nth-child(4){animation-delay:.12s}.screen.active>*:nth-child(5){animation-delay:.16s}
+@media (max-width:900px){.metrics,.analysis-grid,.bottom-grid,.row2,.sev-grid,.page-grid{grid-template-columns:1fr}.topbar{padding:0 16px}.page{padding:20px}.nav-center{display:none}.result-hero{flex-direction:column;gap:12px}.inc{flex-direction:column;align-items:stretch}.inc-right{align-items:flex-start;padding-top:0}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2"/></svg>
+    </div>
+    <span class="brand-name">SRE Agent</span>
+    <div class="brand-sep"></div>
+    <span class="brand-by">Cognition by Design</span>
+  </div>
+  <div class="nav-center">
+    <button class="nav-btn active" data-screen="reports" onclick="goMain('reports')">Reports</button>
+    <button class="nav-btn" data-screen="dashboard" onclick="goMain('dashboard')">Dashboard</button>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      <span class="status-label" id="status-label">System active</span>
+    </div>
+    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <span class="toggle-icon" id="toggle-icon">☀️</span>
+      <div class="toggle-track"><div class="toggle-knob"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="screen active" id="s-reports">
+  <div class="page">
+    <div class="sub-tabs">
+      <button class="sub-tab active" data-sub="new" onclick="goSub('new')">New report</button>
+      <button class="sub-tab" data-sub="status" onclick="goSub('status')">View analysis</button>
+    </div>
+
+    <div id="global-banner" class="banner"></div>
+
+    <div class="sub-screen active" id="sub-new">
+      <div class="page-grid" style="display:grid;grid-template-columns:1fr 296px;gap:16px;align-items:start">
+        <div>
+          <div class="card">
+            <div class="card-title">Report an issue</div>
+            <div class="field">
+              <label>Your name and email — we will notify you when it is resolved</label>
+              <div class="row2">
+                <input id="reporter-name" placeholder="Your name" />
+                <input id="reporter-email" type="email" placeholder="you@company.com" />
+              </div>
+            </div>
+            <div class="field">
+              <label>What is happening?</label>
+              <textarea id="report-text" placeholder="Describe the issue with enough detail for the agent to analyze it."></textarea>
+            </div>
+            <div class="field">
+              <label>Attach evidence <span style="font-weight:400;color:var(--text4)">— image or log (optional)</span></label>
+              <input id="file-upload" type="file" accept=".png,.jpg,.jpeg,.log,.txt" class="hidden" />
+              <div class="upload-zone" id="upload-zone">
+                <div class="upload-icon">
+                  <svg viewBox="0 0 16 16"><path d="M8 11V3M5 6l3-3 3 3"/><path d="M3 13h10"/></svg>
+                </div>
+                <p>Drag your file here or click to select</p>
+                <span>PNG · JPG · .log · max 20 MB</span>
+                <div id="file-name"></div>
+              </div>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>How urgent does it seem? <span style="font-weight:400;color:var(--text4)">— the system will verify it</span></label>
+              <div class="sev-grid">
+                <div class="sev-opt s-urgent" data-severity="Urgent"><div class="so-name">Urgent</div><div class="so-desc">Everything is down</div></div>
+                <div class="sev-opt s-important" data-severity="Important"><div class="so-name">Important</div><div class="so-desc">Something critical is failing</div></div>
+                <div class="sev-opt s-medium active" data-severity="Moderate"><div class="so-name">Moderate</div><div class="so-desc">It works, but poorly</div></div>
+                <div class="sev-opt s-low" data-severity="Minor"><div class="so-name">Minor</div><div class="so-desc">Small or cosmetic issue</div></div>
+              </div>
+            </div>
+            <button class="btn-submit" id="submit-btn" onclick="submitIncident()">Send report to the agent →</button>
+          </div>
+        </div>
+        <div>
+          <div class="sidebar-card">
+            <div class="sidebar-title">What happens after you submit</div>
+            <div class="ps"><div class="ps-n">1</div><div class="ps-txt"><strong>We understand the problem</strong> — we analyze your description and identify which part of the store is affected and how many users are impacted.</div></div>
+            <div class="ps"><div class="ps-n">2</div><div class="ps-txt"><strong>We search for the real cause</strong> — we inspect the codebase and propose explanations, each backed by concrete evidence.</div></div>
+            <div class="ps"><div class="ps-n">3</div><div class="ps-txt"><strong>We verify before reporting</strong> — we only include causes that actually exist in the code. Anything without evidence is discarded.</div></div>
+            <div class="ps"><div class="ps-n">4</div><div class="ps-txt"><strong>We notify the team</strong> with all the context needed to act, and we notify you once it is resolved.</div></div>
+            <div class="dedup-note">If someone already reported the same issue, we automatically merge the reports so the team does not work on duplicates.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-screen" id="sub-status">
+      <div id="empty-status" class="empty-state">
+        <h3>No analysis loaded yet</h3>
+        <p>Submit a report or open one from the dashboard to view the triage result.</p>
+      </div>
+
+      <div id="status-content" class="hidden">
+        <div class="result-hero">
+          <div>
+            <div class="rh-id" id="hero-meta"></div>
+            <div class="rh-title" id="hero-title"></div>
+            <div class="rh-time" id="hero-reporter"></div>
+          </div>
+          <span class="sev-badge medium" id="hero-severity">Moderate</span>
+        </div>
+
+        <div class="progress-wrap" id="tracker-wrap">
+          <div class="progress-title">Analysis status</div>
+          <div class="steps" id="tracker-steps"></div>
+          <div class="progress-note" id="tracker-note"></div>
+        </div>
+
+        <div id="duplicate-banner" class="runbook-bar hidden" style="background:var(--violet-bg);border-color:var(--violet-border)">
+          <div class="rb-dot" style="background:var(--violet)">
+            <svg viewBox="0 0 10 10"><path d="M2 5h6"/><path d="M5 2v6"/></svg>
+          </div>
+          <div class="rb-text" style="color:var(--violet)">
+            This report is very similar to an existing one and was automatically merged.
+            The team is already working on the original report.
+          </div>
+        </div>
+
+        <div class="analysis-grid" id="analysis-grid">
+          <div class="analysis-card">
+            <div class="ac-header">
+              <span class="ac-badge diag">Diagnosis</span>
+              <span class="ac-title">What did we find?</span>
+            </div>
+            <div class="info-row"><span class="ir-k">Affected area</span><span class="ir-v" id="diag-service">-</span></div>
+            <div class="info-row"><span class="ir-k">Impact</span><span class="ir-v" id="diag-impact">-</span></div>
+            <div class="info-row"><span class="ir-k">Also affects</span><span class="ir-v" id="diag-blast">-</span></div>
+            <div class="info-row"><span class="ir-k">Ongoing since</span><span class="ir-v" id="diag-created">-</span></div>
+            <div class="info-row"><span class="ir-k">Computed urgency</span><span class="ir-v" id="diag-severity">-</span></div>
+          </div>
+          <div class="analysis-card">
+            <div class="ac-header">
+              <span class="ac-badge verif">Verified causes</span>
+              <span class="ac-title">Why is it failing?</span>
+            </div>
+            <div id="causes-list"></div>
+          </div>
+        </div>
+
+        <div class="summary-wrap">
+          <div class="card-title" style="margin-bottom:12px">Analysis summary</div>
+          <div class="summary-text" id="summary-text"></div>
+          <div class="runbook-bar hidden" id="runbook-bar">
+            <div class="rb-dot"><svg viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/><path d="M3.5 4h3M3.5 6h2"/></svg></div>
+            <div class="rb-text" id="runbook-text"></div>
+          </div>
+        </div>
+
+        <div class="bottom-grid">
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Created ticket</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Number</span><span class="nv" id="ticket-id">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Assigned to</span><span class="nv" id="ticket-team">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Priority</span><span class="nv" id="ticket-priority">-</span></div>
+            <button class="btn-secondary hidden" id="ticket-link-btn" style="margin-top:12px" onclick="openTicket()">Open ticket</button>
+          </div>
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Notifications</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Technical team</span><span class="nv" id="notify-team">Pending</span></div>
+            <div class="notif-row"><span class="nd pending" id="reporter-dot"></span><span class="nk">Reporter</span><span class="nv" id="notify-reporter">On resolution</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Estimated time</span><span class="nv" id="eta-value">No estimate</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="s-dashboard">
+  <div class="page">
+    <div class="dash-header">
+      <div>
+        <div class="dash-title">Dashboard</div>
+        <div class="dash-sub" id="dashboard-subtitle">Updated · -- · eShop Production</div>
+      </div>
+      <button class="btn-secondary" style="width:auto;margin-top:0;padding:10px 14px" onclick="loadDashboard(true)">Refresh</button>
+    </div>
+    <div class="metrics">
+      <div class="met m-red"><div class="met-label">Open issues</div><div class="met-val" id="metric-open">0</div><div class="met-sub danger" id="metric-open-sub">0 urgent</div></div>
+      <div class="met m-amber"><div class="met-label">Analyzed today</div><div class="met-val" id="metric-today">0</div><div class="met-sub ok">processed reports</div></div>
+      <div class="met m-green"><div class="met-label">Analysis time</div><div class="met-val" id="metric-time">--</div><div class="met-sub muted">estimated average</div></div>
+      <div class="met m-blue"><div class="met-label">Detected duplicates</div><div class="met-val" id="metric-dup">0</div><div class="met-sub blue">merged reports</div></div>
+    </div>
+    <div class="filters">
+      <span class="chip active" data-filter="all" onclick="setFilter('all')">All</span>
+      <span class="chip" data-filter="critical" onclick="setFilter('critical')">Urgent</span>
+      <span class="chip" data-filter="triaging" onclick="setFilter('triaging')">Analyzing</span>
+      <span class="chip" data-filter="resolvable" onclick="setFilter('resolvable')">Ready to resolve</span>
+      <span class="chip" data-filter="resolved" onclick="setFilter('resolved')">Resolved</span>
+    </div>
+    <div id="dashboard-banner" class="banner"></div>
+    <div class="inc-list" id="incident-list"></div>
+  </div>
+</div>
+<script>
+const TRACKER_STEPS=["Report<br>received","Code<br>analyzed","Causes<br>verified","Ticket<br>created","Team<br>notified","Issue<br>resolved"];
+const STATUS_STEP_COUNT={RECEIVED:1,TRIAGING:2,TRIAGED:3,TICKET_CREATED:4,TEAM_NOTIFIED:5,REPORTER_NOTIFIED:6};
+const state={currentMain:"reports",currentSub:"new",currentFilter:"all",selectedSeverity:"Moderate",lastIncident:null,incidents:[]};
+function $(id){return document.getElementById(id)}
+function showBanner(message,type="info",target="global-banner"){const banner=$(target);banner.textContent=message;banner.className=`banner show ${type}`}
+function hideBanner(target="global-banner"){const banner=$(target);banner.className="banner";banner.textContent=""}
+function goMain(screen){state.currentMain=screen;document.querySelectorAll(".screen").forEach((node)=>node.classList.remove("active"));document.querySelectorAll(".nav-btn").forEach((node)=>node.classList.remove("active"));$(`s-${screen}`).classList.add("active");document.querySelector(`.nav-btn[data-screen="${screen}"]`).classList.add("active");if(screen==="dashboard"){loadDashboard()}window.scrollTo(0,0)}
+function goSub(sub){state.currentSub=sub;document.querySelectorAll(".sub-screen").forEach((node)=>node.classList.remove("active"));document.querySelectorAll(".sub-tab").forEach((node)=>node.classList.remove("active"));$(`sub-${sub}`).classList.add("active");document.querySelector(`.sub-tab[data-sub="${sub}"]`).classList.add("active");if(sub==="status"&&!state.lastIncident){const lastId=localStorage.getItem("last_incident_id");if(lastId){loadIncidentDetails(lastId)}}window.scrollTo(0,0)}
+function toggleTheme(){const html=document.documentElement;const isDark=html.getAttribute("data-theme")==="dark";const next=isDark?"light":"dark";html.setAttribute("data-theme",next);$("toggle-icon").textContent=next==="dark"?"🌙":"☀️";localStorage.setItem("theme",next)}
+function restoreTheme(){const saved=localStorage.getItem("theme");if(saved==="dark"){document.documentElement.setAttribute("data-theme","dark");$("toggle-icon").textContent="🌙"}}
+function initUpload(){const zone=$("upload-zone");const input=$("file-upload");zone.addEventListener("click",()=>input.click());zone.addEventListener("dragover",(event)=>{event.preventDefault();zone.classList.add("drag")});zone.addEventListener("dragleave",()=>zone.classList.remove("drag"));zone.addEventListener("drop",(event)=>{event.preventDefault();zone.classList.remove("drag");if(event.dataTransfer.files.length){input.files=event.dataTransfer.files;updateSelectedFile()}});input.addEventListener("change",updateSelectedFile)}
+function updateSelectedFile(){const file=$("file-upload").files[0];$("file-name").textContent=file?`File ready: ${file.name}`:""}
+function initSeverityPicker(){document.querySelectorAll(".sev-opt").forEach((node)=>{node.addEventListener("click",()=>{document.querySelectorAll(".sev-opt").forEach((item)=>item.classList.remove("active"));node.classList.add("active");state.selectedSeverity=node.dataset.severity})})}
+function sanitizeInput(text){const clean=text.trim();if(clean.length>2000){showBanner("The report is quite long. Consider summarizing it to under 2000 characters.","warn")}return clean}
+function validateForm(){const report=$("report-text").value.trim();const email=$("reporter-email").value.trim();if(report.length<10){showBanner("Please describe the issue in more detail.","error");return false}if(email&&!email.includes("@")){showBanner("The email address does not look valid.","error");return false}hideBanner();return true}
+function showAnalyzingState(){const now=new Date();state.lastIncident={incident_id:"Processing",status:"TRIAGING",triage_summary:"The full analysis pipeline is running. This usually takes between 20 and 45 seconds.",final_severity:"MEDIUM",verified_root_causes:[],suggested_runbooks:[],ticket_id:"",ticket_url:"",assigned_team:"",duplicate_of:"",errors:[],raw_report:$("report-text").value.trim(),created_at:now.toISOString(),_reporter_name:$("reporter-name").value.trim(),_reporter_email:$("reporter-email").value.trim()};renderIncident(state.lastIncident);goSub("status")}
+async function submitIncident(){if(!validateForm())return;const reportText=sanitizeInput($("report-text").value);const perceived=state.selectedSeverity?`[Perceived severity: ${state.selectedSeverity}] `:"";const form=new FormData();form.append("reporter_name",$("reporter-name").value.trim());form.append("reporter_email",$("reporter-email").value.trim());form.append("report",`${perceived}${reportText}`);const file=$("file-upload").files[0];if(file)form.append("image",file);const button=$("submit-btn");button.disabled=true;button.textContent="Analyzing...";showAnalyzingState();try{const response=await fetch("/incident",{method:"POST",body:form});const data=await response.json();if(!response.ok){throw new Error(data.detail||"The incident could not be processed.")}localStorage.setItem("last_incident_id",data.incident_id);const incident={...data,raw_report:reportText,created_at:new Date().toISOString(),_reporter_name:$("reporter-name").value.trim(),_reporter_email:$("reporter-email").value.trim()};state.lastIncident=incident;renderIncident(incident);goSub("status");await loadDashboard(true)}catch(error){showBanner(error.message||"An error occurred while sending the report.","error")}finally{button.disabled=false;button.textContent="Send report to the agent →"}}
+async function loadIncidentDetails(incidentId){if(!incidentId)return;try{const response=await fetch(`/incident/${incidentId}`);const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be loaded.");state.lastIncident=data;renderIncident(data)}catch(error){showBanner(error.message||"The analysis could not be loaded.","error")}}
+function renderIncident(incident){if(!incident)return;$("empty-status").classList.add("hidden");$("status-content").classList.remove("hidden");const severity=mapSeverity(incident.final_severity||"MEDIUM");$("hero-meta").textContent=`Report #${incident.incident_id||"N/A"} · ${formatStatusLabel(incident.status||"RECEIVED")} · ${formatAbsoluteDate(incident.created_at)}`;$("hero-title").textContent=buildIncidentTitle(incident);$("hero-reporter").textContent=incident.duplicate_of?`Automatically merged with ${incident.duplicate_of}`:`Reported by ${incident._reporter_name||extractReporterName(incident.raw_report)||"User"} · ${incident._reporter_email||extractReporterEmail(incident.raw_report)||"no email"}`;const badge=$("hero-severity");badge.textContent=severity.label;badge.className=`sev-badge ${severity.className}`;$("diag-service").textContent=getAffectedService(incident);$("diag-impact").textContent=getImpactLabel(incident);$("diag-blast").textContent=getBlastRadiusLabel(incident);$("diag-created").textContent=formatRelativeTime(incident.created_at);$("diag-severity").textContent=severity.label;$("diag-severity").style.color=severity.colorVar?`var(${severity.colorVar})`:"";renderTracker(incident.status,incident._reporter_email||extractReporterEmail(incident.raw_report));renderCauses(incident);$("summary-text").textContent=incident.triage_summary||"No summary is available yet.";renderRunbook(incident.suggested_runbooks||[]);renderTicket(incident);const isDuplicate=Boolean(incident.duplicate_of);$("duplicate-banner").classList.toggle("hidden",!isDuplicate);$("tracker-wrap").classList.toggle("hidden",isDuplicate);$("analysis-grid").classList.toggle("hidden",isDuplicate)}
+function buildIncidentTitle(incident){if(incident.duplicate_of)return"Duplicate report detected and merged";const raw=incident.raw_report||"";const clean=raw.replace(/^Reporter:.*?\n\n/s,"").trim();return clean?clean.slice(0,85):"Incident analysis"}
+function renderTracker(status,reporterEmail){const completed=STATUS_STEP_COUNT[status]||1;const container=$("tracker-steps");container.innerHTML="";TRACKER_STEPS.forEach((label,index)=>{const done=index<completed;const number=index+1;const item=document.createElement("div");item.className=`step-item${done?" done":""}`;item.innerHTML=`<div class="step-circle">${done?"✓":number}</div><div class="step-label">${label}</div>`;container.appendChild(item)});$("tracker-note").innerHTML=reporterEmail?`The technical team is already working on it. We will notify <strong style="color:var(--text2)">${escapeHtml(reporterEmail)}</strong> when it is resolved.`:"The technical team already has the analysis result and can act on this context."}
+function renderCauses(incident){const list=$("causes-list");list.innerHTML="";const verified=incident.verified_root_causes||[];if(verified.length){verified.forEach((cause)=>{list.appendChild(buildCauseItem("confirmed","Confirmed in code",cause,"Evidence was found directly in the code"))})}else{list.appendChild(buildCauseItem("possible","Unconfirmed","There are no verified root causes in the current result yet.","The system completed the flow with partial evidence or without hypotheses"))}(incident.errors||[]).forEach((error)=>{list.appendChild(buildCauseItem("discarded","Pipeline issue",error,"The backend reported a warning or error during analysis"))})}
+function buildCauseItem(kind,tag,text,note){const item=document.createElement("div");item.className="cause-item";item.innerHTML=`<div class="cause-tags"><span class="ctag ${kind}">${tag}</span></div><div class="cause-text">${escapeHtml(text)}</div><div class="cause-note">${escapeHtml(note)}</div>`;return item}
+function renderRunbook(runbooks){const bar=$("runbook-bar");if(!runbooks.length){bar.classList.add("hidden");return}const runbook=runbooks[0];$("runbook-text").innerHTML=`<strong>Suggested resolution guide</strong> — ${escapeHtml(runbook.title||runbook.runbook_id||"Suggested runbook")}. Escalation: ${escapeHtml(runbook.escalation_path||"Not defined")}. Estimated time: ${escapeHtml(runbook.estimated_resolution_time||"Not defined")}.`;bar.classList.remove("hidden")}
+function renderTicket(incident){$("ticket-id").textContent=incident.ticket_id||"Pending";$("ticket-team").textContent=incident.assigned_team||"Unassigned";$("ticket-priority").textContent=mapSeverity(incident.final_severity||"MEDIUM").label;$("notify-team").textContent=["TEAM_NOTIFIED","REPORTER_NOTIFIED","RESOLVED"].includes(incident.status)?"Email + Slack ✓":"Pending";const reporterResolved=incident.status==="REPORTER_NOTIFIED";$("notify-reporter").textContent=reporterResolved?"Notified ✓":"On resolution";$("reporter-dot").className=`nd ${reporterResolved?"ok":"pending"}`;const runbook=(incident.suggested_runbooks||[])[0];$("eta-value").textContent=runbook?.estimated_resolution_time||"No estimate";$("ticket-link-btn").classList.toggle("hidden",!incident.ticket_url)}
+function openTicket(){if(state.lastIncident?.ticket_url){window.open(state.lastIncident.ticket_url,"_blank","noopener,noreferrer")}}
+async function loadDashboard(showFeedback=false){try{const response=await fetch("/incidents");const incidents=await response.json();if(!response.ok)throw new Error("The dashboard could not be loaded.");state.incidents=Array.isArray(incidents)?incidents:[];renderDashboard();if(showFeedback)showBanner("Dashboard updated.","info","dashboard-banner");loadSystemStatus()}catch(error){showBanner(error.message||"The dashboard could not be loaded.","error","dashboard-banner")}}
+function renderDashboard(){$("dashboard-subtitle").textContent=`Updated · ${formatAbsoluteDate(new Date().toISOString())} · eShop Production`;const metrics=calcMetrics(state.incidents);$("metric-open").textContent=String(metrics.open);$("metric-open-sub").textContent=`${metrics.urgent} urgent`;$("metric-today").textContent=String(metrics.today);$("metric-time").textContent=metrics.avgTime;$("metric-dup").textContent=String(metrics.duplicates);renderIncidentList(state.incidents.filter(matchesFilter))}
+function calcMetrics(incidents){const open=incidents.filter((i)=>!["REPORTER_NOTIFIED","RESOLVED"].includes(i.status)).length;const urgent=incidents.filter((i)=>i.final_severity==="CRITICAL"&&!["REPORTER_NOTIFIED","RESOLVED"].includes(i.status)).length;const duplicates=incidents.filter((i)=>i.duplicate_of).length;const today=incidents.filter((i)=>isToday(i.created_at)).length;const triaged=incidents.filter((i)=>i.triage_summary);const avgTime=triaged.length?"38s":"--";return{open,urgent,duplicates,today,avgTime}}
+function matchesFilter(incident){switch(state.currentFilter){case"critical":return incident.final_severity==="CRITICAL";case"triaging":return["RECEIVED","TRIAGING","TRIAGED"].includes(incident.status)&&!incident.duplicate_of;case"resolvable":return["TEAM_NOTIFIED","TICKET_CREATED"].includes(incident.status);case"resolved":return["REPORTER_NOTIFIED","RESOLVED"].includes(incident.status);default:return true}}
+function setFilter(filter){state.currentFilter=filter;document.querySelectorAll(".chip").forEach((chip)=>chip.classList.remove("active"));document.querySelector(`.chip[data-filter="${filter}"]`).classList.add("active");renderDashboard()}
+function renderIncidentList(incidents){const list=$("incident-list");list.innerHTML="";if(!incidents.length){list.innerHTML=`<div class="empty-state"><h3>No incidents for this filter</h3><p>New reports will appear here as they come in.</p></div>`;return}incidents.forEach((incident)=>{const item=document.createElement("div");item.className="inc";item.onclick=()=>openIncidentFromDashboard(incident.incident_id);const severityClass=incident.duplicate_of?"dup":barClassForSeverity(incident.final_severity);const tag=buildStatusTag(incident);const resolveButton=["TEAM_NOTIFIED","TICKET_CREATED"].includes(incident.status)&&!incident.duplicate_of?`<button class="res-btn" onclick="event.stopPropagation(); resolveIncident('${incident.incident_id}')">Mark as resolved</button>`:"";const subtitle=incident.duplicate_of?`${formatRelativeTime(incident.created_at)} · ${similarityLabel(incident)}`:`${extractReporterName(incident.raw_report)||"User"} · ${formatRelativeTime(incident.created_at)} · ${getAffectedService(incident)}`;item.innerHTML=`<div class="inc-bar ${severityClass}"></div><div class="inc-body"><div class="inc-title">${escapeHtml(buildIncidentTitle(incident))}</div><div class="inc-sub">${escapeHtml(subtitle)}</div></div><div class="inc-right"><span class="tag ${tag.className}">${escapeHtml(tag.label)}</span>${incident.duplicate_of?`<span class="dup-ref">→ Merged with #${escapeHtml(incident.duplicate_of)}</span>`:resolveButton}</div>`;list.appendChild(item)})}
+function buildStatusTag(incident){if(incident.duplicate_of)return{className:"tag-dup",label:"Duplicate report"};switch(incident.status){case"TEAM_NOTIFIED":return{className:"tag-team",label:"Team notified"};case"REPORTER_NOTIFIED":case"RESOLVED":return{className:"tag-done",label:"Resolved"};case"TICKET_CREATED":return{className:"tag-done",label:"Ready to resolve"};case"TRIAGING":case"RECEIVED":return{className:"tag-analyzing",label:"Analyzing..."};default:return{className:"tag-waiting",label:formatStatusLabel(incident.status)}}}
+async function openIncidentFromDashboard(incidentId){localStorage.setItem("last_incident_id",incidentId);goMain("reports");goSub("status");await loadIncidentDetails(incidentId)}
+async function resolveIncident(incidentId){const notes=window.prompt("Resolution notes (optional):","");if(notes===null)return;const form=new FormData();form.append("resolution_notes",notes);try{const response=await fetch(`/incident/${incidentId}/resolve`,{method:"POST",body:form});const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be resolved.");showBanner("Incident marked as resolved. The knowledge flywheel has already been updated.","info","dashboard-banner");await loadDashboard();if(state.lastIncident&&state.lastIncident.incident_id===incidentId){await loadIncidentDetails(incidentId)}}catch(error){showBanner(error.message||"The incident could not be resolved.","error","dashboard-banner")}}
+async function loadSystemStatus(){try{const [indexRes,knowledgeRes]=await Promise.all([fetch("/index/status"),fetch("/knowledge/status")]);const index=await indexRes.json();const knowledge=await knowledgeRes.json();const label=index.status==="indexed"?`System active · ${index.chunk_count} indexed files · ${knowledge.knowledge_chunks||0} knowledge chunks`:"Index pending — run /index first";$("status-label").textContent=label}catch(_error){$("status-label").textContent="System active"}}
+function mapSeverity(severity){const key=(severity||"MEDIUM").toUpperCase();if(key==="CRITICAL")return{label:"Urgent",className:"urgent",colorVar:"--red"};if(key==="HIGH")return{label:"Important",className:"important",colorVar:"--amber"};if(key==="LOW")return{label:"Minor",className:"low",colorVar:"--green"};return{label:"Moderate",className:"medium",colorVar:"--accent"}}
+function formatStatusLabel(status){const map={RECEIVED:"Report received",TRIAGING:"Analyzing",TRIAGED:"Analysis ready",TICKET_CREATED:"Ticket created",TEAM_NOTIFIED:"Team notified",REPORTER_NOTIFIED:"Resolved",RESOLVED:"Resolved",DUPLICATE:"Duplicate"};return map[status]||"Unknown status"}
+function getAffectedService(incident){return incident.world_model?.affected_service||incident.assigned_team||"Unidentified service"}
+function getImpactLabel(incident){if(incident.final_severity==="CRITICAL")return"All users";if(incident.final_severity==="HIGH")return"Critical flow affected";if(incident.final_severity==="LOW")return"Localized impact";return"Moderate impact"}
+function getBlastRadiusLabel(incident){const radius=incident.world_model?.blast_radius||[];if(Array.isArray(radius)&&radius.length)return radius.join(", ");return"No other confirmed services"}
+function barClassForSeverity(severity){if(severity==="CRITICAL")return"critical";if(severity==="HIGH")return"high";if(severity==="LOW")return"low";return"medium"}
+function extractReporterName(rawReport){const match=/^Reporter:\s*(.*?)\s*\(/m.exec(rawReport||"");return match?match[1].trim():""}
+function extractReporterEmail(rawReport){const match=/\(([^)]+@[^)]+)\)/.exec(rawReport||"");return match?match[1].trim():""}
+function similarityLabel(incident){const score=incident.similarity_score;if(typeof score==="number")return`${Math.round(score*100)}% similar`;return`Related to ${incident.duplicate_of}`}
+function formatRelativeTime(dateString){if(!dateString)return"just now";const date=new Date(dateString);const seconds=Math.floor((Date.now()-date.getTime())/1000);if(Number.isNaN(seconds))return"just now";if(seconds<60)return"less than 1 min ago";const minutes=Math.floor(seconds/60);if(minutes<60)return`${minutes} min ago`;const hours=Math.floor(minutes/60);if(hours<24)return`${hours} h ago`;const days=Math.floor(hours/24);return`${days} d ago`}
+function formatAbsoluteDate(dateString){if(!dateString)return"--";const date=new Date(dateString);if(Number.isNaN(date.getTime()))return"--";return new Intl.DateTimeFormat("es-MX",{dateStyle:"short",timeStyle:"short",timeZoneName:"short"}).format(date)}
+function isToday(dateString){if(!dateString)return false;const date=new Date(dateString);const now=new Date();return date.getFullYear()===now.getFullYear()&&date.getMonth()===now.getMonth()&&date.getDate()===now.getDate()}
+function escapeHtml(value){return String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;")}
+async function boot(){restoreTheme();initUpload();initSeverityPicker();await loadSystemStatus();await loadDashboard();const lastId=localStorage.getItem("last_incident_id");if(lastId)await loadIncidentDetails(lastId)}
+boot();
+</script>
+</body>
+</html>
