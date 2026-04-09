@@ -20,6 +20,9 @@ class FakeGraph:
             raise self.error
         return self.result
 
+    def get_state(self, config=None):
+        return None
+
 
 def test_health_check():
     graph = FakeGraph()
@@ -32,6 +35,15 @@ def test_health_check():
     assert payload["status"] == "healthy"
     assert payload["service"] == "sre-agent"
     assert "timestamp" in payload
+
+
+def test_root_serves_frontend():
+    with TestClient(main_module.app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "SRE Agent" in response.text
 
 
 def test_incident_submission_success(monkeypatch):
