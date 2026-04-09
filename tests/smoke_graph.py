@@ -5,7 +5,6 @@ from rich.panel import Panel
 from rich.text import Text
 
 from app.agents.graph import get_graph
-from app.agents.state import GraphState
 
 console = Console()
 
@@ -20,11 +19,11 @@ async def main():
         "The Basket API is returning 500s because the BasketRepository is failing to save."
     )
     
-    initial_state = GraphState(
-        incident_id=incident_id,
-        raw_report=raw_report,
-        status="NEW"
-    )
+    initial_state = {
+        "incident_id": incident_id,
+        "raw_report": raw_report,
+        "status": "NEW"
+    }
     
     config = {"configurable": {"thread_id": incident_id}}
     
