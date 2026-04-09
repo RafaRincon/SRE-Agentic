@@ -61,14 +61,15 @@ Para implementar esto fluidamente, el patrón se apoya altamente en grafos tempo
 
 ```mermaid
 graph TD
-    A[Inputs / Eventos] --> B[Ruteo Inicial / Clasificación]
-    B -->|Track A| C[World Model & Extracción]
-    B -->|Track B| D[Risk Hypothesizer]
+    A[Inputs / Eventos] --> B[Ruteo Inicial / Intake]
+    B --> C[World Model & Extracción]
+    C --> C2[Identificación Entidades / Slot Filler]
+    C2 --> D[Risk Hypothesizer]
     D --> E{Risk Arbiter\nSpan Match}
     E -->|Fallo Evidencia| F[Descartar Alucinación]
     E -->|Éxito Evidencia| G[Falsador Epistémico Async]
-    C --> H[Consolidador Simbólico]
-    G --> H
+    G --> H[Consolidador Simbólico]
+    F --> H
     H --> I[Generador de Síntesis / Drafting]
     I --> J{Máquina de Estados\nCondicional Estricta}
     J --> K[Persistencia en Ledger]
@@ -85,9 +86,9 @@ graph TD
 
 Al llevarte este patrón a otro proyecto, considera estas lecciones críticas derivadas de escalar sistemas neurosimbólicos en producción:
 
-### A. La Trampa de la Carpeta de Herramientas (Tool Calling)
-*   **El Problema:** Darle a un modelo grande una tarea compleja de estructuración JSON (un output schema complejo) junto con una gran cantidad de `tools` disponibles suele provocar que el LLM colapse en loops ReAct infinitos o ignore las herramientas.
-*   **La Solución:** Usa **Single-Shot con Native Schema Required** (`with_structured_output(strict=True)`). Permite que el modelo fundamente la respuesta *under-the-hood* primero, y sólo entregue el JSON final con los datos ya embebidos, en lugar de ponerlo a jugar a iterar.
+### A. La Trampa de la Carpeta de Herramientas (Tool Calling) vs Pydantic Nativo
+*   **El Problema:** Darle a un modelo grande una tarea compleja de estructuración JSON (un output schema complejo) junto con una gran cantidad de `tools` disponibles suele provocar que el LLM colapse en loops ReAct infinitos o cause errores silentes al truncar respuestas, fallando el parseo.
+*   **La Solución:** Limitar drásticamente la cantidad de Tools a 2 o 3 opciones concisas que retornen *conclusiones lógicas* e implementar capas puras como el SDK de GenAI Nativo (`google-genai`). Requerir el esquema vía **Structured Outputs Nativos** evita serializadores intermediarios, logrando un determinismo total. Modelos como `gemini-3.1-pro` permiten un razonamiento profundo (Thinking Models) para ejecutar el plan epistémico sin perder track de su estructura final (Pydantic Model).
 
 ### B. Segregación de Responsabilidades (Auditor vs. Investigador)
 No puedes tener un solo prompt que encuentre riesgos y los investigue al mismo tiempo sin paralizar la aplicación y disparar tus falsos positivos:
