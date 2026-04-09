@@ -1,12 +1,12 @@
 """
 SRE Agent — Epistemic Falsifier Node (Track B)
 
-Popperian Falsification with native Gemini SDK (google-genai).
+Hypothesis falsification using the native Gemini SDK (`google-genai`).
 
 Architecture:
   - 2 focused tools: lookup_code (existence check) + check_defenses (safeguard scan)
   - Built-in code_execution for programmatic verification
-  - Manual turn-by-turn loop for full observability
+  - Manual turn-by-turn loop for observability
   - Tool results include CONCLUSIONS, not just raw code
 
 Design principles (from Google FC best practices):
@@ -30,7 +30,7 @@ from app.providers import llm_provider, db_provider
 
 logger = logging.getLogger(__name__)
 
-MAX_FALSIFIER_TURNS = 4
+MAX_FALSIFIER_TURNS = 6
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ class FalsificationVerdict(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Tool Declarations — only 2 tools, clearly distinct
+# Tool declarations
 # ---------------------------------------------------------------------------
 
 LOOKUP_CODE_DECL = {
@@ -100,11 +100,36 @@ CHECK_DEFENSES_DECL = {
     },
 }
 
-ALL_TOOL_DECLS = [LOOKUP_CODE_DECL, CHECK_DEFENSES_DECL]
+GET_CALLER_DECL = {
+    "name": "get_caller_context",
+    "description": (
+        "Find the code that CALLS or CONSTRUCTS the suspected function/class. "
+        "Use this when you need to verify what values callers pass to the suspected method — "
+        "for example, to check if a parameter that could be null is always hardcoded or validated "
+        "by the caller before reaching the suspected failure point. "
+        "Returns the caller code chunks with a CONCLUSION about what argument values were observed."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "callee_name": {
+                "type": "string",
+                "description": "The method or class being called, e.g. 'CreateOrderAsync' or 'CreateOrderRequest'",
+            },
+            "parameter_of_interest": {
+                "type": "string",
+                "description": "The specific parameter to look for in the caller, e.g. 'CardNumber' or 'currency'",
+            },
+        },
+        "required": ["callee_name"],
+    },
+}
+
+ALL_TOOL_DECLS = [LOOKUP_CODE_DECL, CHECK_DEFENSES_DECL, GET_CALLER_DECL]
 
 
 # ---------------------------------------------------------------------------
-# Tool Executors — results include CONCLUSIONS
+# Tool executors
 # ---------------------------------------------------------------------------
 
 
@@ -114,7 +139,7 @@ async def _exec_lookup_code(filename: str, function_name: str = "") -> str:
         settings = get_settings()
         container = db_provider.get_container(settings.cosmos_container_chunks)
 
-        # Direct SQL — no vector search needed for existence check
+        # Direct SQL is sufficient for the existence check.
         fn_lower = filename.split("/")[-1].lower()
         query = """
         SELECT TOP 3
@@ -137,7 +162,7 @@ async def _exec_lookup_code(filename: str, function_name: str = "") -> str:
                 "This is enough to FALSIFY the hypothesis with confidence 1.0."
             )
 
-        # Build response with code
+        # Build the response with matching code.
         chunks = []
         method_found = False
         for r in results:
@@ -152,7 +177,7 @@ async def _exec_lookup_code(filename: str, function_name: str = "") -> str:
 
         code_block = "\n\n".join(chunks)
 
-        # Conclusion
+        # Add a summary conclusion.
         if function_name and not method_found:
             conclusion = (
                 f"CONCLUSION: File '{filename}' EXISTS in the codebase, but the method "
@@ -196,7 +221,7 @@ async def _exec_check_defenses(failure_description: str, function_name: str) -> 
                 "Verdict should be CORROBORATED."
             )
 
-        # Scan for safeguard patterns
+        # Scan for safeguard patterns.
         safeguard_patterns = [
             "?? ", "is null", "!= null", "== null", "?.",
             "argumentnullexception", "throw new", "try {", "catch ("
@@ -213,7 +238,7 @@ async def _exec_check_defenses(failure_description: str, function_name: str) -> 
             count = len(found_patterns)
             total_guards += count
 
-            # Check if this guard is in the right method
+            # Check whether the safeguard appears in the target method.
             method_match = function_name.lower() in (r.get("method_name", "") or "").lower()
             if method_match and count > 0:
                 relevant_guards += count
@@ -228,7 +253,7 @@ async def _exec_check_defenses(failure_description: str, function_name: str) -> 
 
         code_block = "\n\n".join(parts)
 
-        # Build conclusion
+        # Add a summary conclusion.
         if relevant_guards > 0:
             conclusion = (
                 f"CONCLUSION: Found {relevant_guards} safeguard(s) DIRECTLY in method "
@@ -255,6 +280,89 @@ async def _exec_check_defenses(failure_description: str, function_name: str) -> 
         return f"ERROR: check_defenses failed: {e}"
 
 
+async def _exec_get_caller_context(callee_name: str, parameter_of_interest: str = "") -> str:
+    """Search for chunks that CALL the callee function/class. Returns caller code + conclusion."""
+    try:
+        settings = get_settings()
+        container = db_provider.get_container(settings.cosmos_container_chunks)
+
+        # Search for chunks that reference the callee.
+        callee_lower = callee_name.lower()
+        query = """
+        SELECT TOP 5
+            c.file_path, c.chunk_text, c.start_line, c.end_line,
+            c.class_name, c.method_name
+        FROM c
+        WHERE CONTAINS(LOWER(c.chunk_text), @callee)
+        ORDER BY c.start_line
+        """
+        params = [{"name": "@callee", "value": callee_lower}]
+        results = list(
+            container.query_items(query=query, parameters=params,
+                                  enable_cross_partition_query=True)
+        )
+
+        if not results:
+            return (
+                f"NO_CALLERS_FOUND: No code was found that calls or constructs '{callee_name}'.\n\n"
+                "CONCLUSION: Cannot verify caller-side sanitization. "
+                "The parameter values going into this function are UNKNOWN. "
+                "If the hypothesis depends on a caller passing a bad value, "
+                "this is INSUFFICIENT_EVIDENCE for that specific claim."
+            )
+
+        chunks = []
+        param_observations = []
+
+        for r in results:
+            text = r.get("chunk_text", "")
+            file_ = r.get("file_path", "?")
+            method_ = r.get("method_name", "?")
+
+            # Check whether the parameter of interest appears in this caller.
+            param_note = ""
+            if parameter_of_interest:
+                param_lower = parameter_of_interest.lower()
+                if param_lower in text.lower():
+                    # Extract the first matching line for context.
+                    for line in text.splitlines():
+                        if param_lower in line.lower():
+                            param_note = f"  → Parameter '{parameter_of_interest}' found: {line.strip()}"
+                            param_observations.append(f"{file_}::{method_}: {line.strip()}")
+                            break
+
+            chunks.append(
+                f"— {file_} L{r.get('start_line','?')}-{r.get('end_line','?')} "
+                f"class={r.get('class_name','?')} method={method_}\n"
+                f"{param_note}\n"
+                f"```csharp\n{text}\n```"
+            )
+
+        code_block = "\n\n".join(chunks)
+
+        if param_observations:
+            conclusion = (
+                f"CONCLUSION: Found {len(results)} caller(s) of '{callee_name}'. "
+                f"The parameter '{parameter_of_interest}' was observed in {len(param_observations)} caller(s):\n"
+                + "\n".join(f"  - {o}" for o in param_observations)
+                + "\nExamine the values above — if the caller always provides a safe value "
+                "(e.g. hardcoded non-null string), the hypothesis may be FALSIFIED for this call path."
+            )
+        else:
+            conclusion = (
+                f"CONCLUSION: Found {len(results)} caller(s) of '{callee_name}'. "
+                + (f"The parameter '{parameter_of_interest}' was NOT found in any caller chunk. "
+                   "It may be passed implicitly or the relevant chunk was not indexed."
+                   if parameter_of_interest else
+                   "Review the caller code above to assess what values are passed in.")
+            )
+
+        return f"{code_block}\n\n{conclusion}"
+
+    except Exception as e:
+        return f"ERROR: get_caller_context failed: {e}"
+
+
 async def _dispatch_tool(name: str, args: dict) -> str:
     """Route a function_call to the correct executor."""
     if name == "lookup_code":
@@ -265,37 +373,60 @@ async def _dispatch_tool(name: str, args: dict) -> str:
         return await _exec_check_defenses(
             args.get("failure_description", ""), args.get("function_name", "")
         )
+    elif name == "get_caller_context":
+        return await _exec_get_caller_context(
+            args.get("callee_name", ""), args.get("parameter_of_interest", "")
+        )
     return (
-        f"Unknown tool: '{name}'. You only have 2 tools: lookup_code and check_defenses. "
+        f"Unknown tool: '{name}'. You only have 3 tools: lookup_code, check_defenses, get_caller_context. "
         "Output your VERDICT now with whatever information you have."
     )
 
 
 # ---------------------------------------------------------------------------
-# System Prompt — practical, not philosophical
+# System prompt
 # ---------------------------------------------------------------------------
 
+# Build a prompt that exceeds the implicit cache threshold for
+# `gemini-3.1-pro-preview`. Reuse the shared falsifier preamble from
+# `prompts.py` so all falsification requests keep the same prefix.
+from app.agents.prompts import FALSIFIER_SYSTEM as _FALSIFIER_PHILOSOPHY
+
 FALSIFIER_SYSTEM_PROMPT = (
-    "You verify whether a code-level hypothesis is true or false by checking it "
-    "against the actual indexed codebase.\n\n"
-    "## Your 2 tools\n\n"
-    "1. lookup_code(filename, function_name) → checks if the file/function exists. "
-    "Read the CONCLUSION at the bottom of the result.\n"
-    "2. check_defenses(failure_description, function_name) → searches for null checks, "
-    "try/catch, guards that would prevent the claimed bug. "
-    "Read the CONCLUSION at the bottom of the result.\n\n"
-    "## Workflow\n\n"
-    "1. Call lookup_code to see if the file exists.\n"
-    "   - If CONCLUSION says FILE_NOT_FOUND → immediately output VERDICT: FALSIFIED\n"
-    "2. Call check_defenses to see if safeguards prevent the bug.\n"
-    "   - If safeguards found that cover the failure → VERDICT: FALSIFIED\n"
-    "   - If no safeguards found → VERDICT: CORROBORATED\n"
-    "3. Output your verdict. Do NOT call more tools after step 2.\n\n"
-    "## Verdict format\n\n"
+    _FALSIFIER_PHILOSOPHY
+    + "\n\n"
+    + "="*72
+    + "\n\n"
+    + "## Tool Reference\n\n"
+    "1. `lookup_code(filename, function_name)` — checks if the file/function "
+    "exists in the indexed codebase. Read the CONCLUSION at the bottom.\n"
+    "2. `check_defenses(failure_description, function_name)` — searches for "
+    "null checks, try/catch, guards that would prevent the claimed bug. "
+    "Read the CONCLUSION at the bottom.\n"
+    "3. `get_caller_context(callee_name, parameter_of_interest)` — finds the code "
+    "that CALLS the suspected function. Use this when the hypothesis claims a "
+    "parameter can be null or missing — the caller may always provide a safe value, "
+    "which would FALSIFY the hypothesis for that call path. "
+    "Example: if hypothesis says CardNumber can be null in CreateOrderAsync, "
+    "call get_caller_context('CreateOrderAsync', 'CardNumber') to "
+    "see what the WebApp actually passes in.\n\n"
+    "## Strict Workflow\n\n"
+    "1. Call `lookup_code` to verify the file and function exist.\n"
+    "   - FILE_NOT_FOUND → VERDICT: FALSIFIED (confidence 1.0)\n"
+    "2. If the hypothesis claims a parameter can be null/missing, call "
+    "`get_caller_context` to check what callers actually pass.\n"
+    "   - Caller always provides a safe/hardcoded value → the null path "
+    "is FALSIFIED for that caller. Note this in your reasoning.\n"
+    "   - Caller passes an untrusted/nullable value → the hypothesis survives.\n"
+    "3. Call `check_defenses` to check for local safeguards in the target method.\n"
+    "   - Safeguards found in target method → VERDICT: FALSIFIED\n"
+    "   - No safeguards found → VERDICT: CORROBORATED\n"
+    "4. Output your verdict. Do NOT call more tools after step 3.\n\n"
+    "## Verdict Format (required)\n\n"
     "VERDICT: CORROBORATED | FALSIFIED | INSUFFICIENT_EVIDENCE\n"
-    "REASONING: what lookup_code and check_defenses told you\n"
+    "REASONING: describe which axes you checked and what each tool returned\n"
     "COUNTER_EVIDENCE: exact code that falsifies, or 'none'\n"
-    "CONFIDENCE: 0.0 to 1.0"
+    "CONFIDENCE: float 0.0 to 1.0"
 )
 
 
@@ -318,20 +449,40 @@ def _build_falsification_prompt(hypothesis: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Agentic Loop
+# Execution loop
 # ---------------------------------------------------------------------------
 
 
 async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
     """
     Run the falsification loop for a single hypothesis.
-    2 tools, ≤4 turns, temp=1, thinking=MEDIUM.
+    Uses up to `MAX_FALSIFIER_TURNS` turns with the configured tool set.
     """
-    settings = get_settings()
-    client = genai.Client(api_key=settings.gemini_api_key)
-    model = "gemini-3.1-pro-preview"  # Explicitly use 3.1 Pro for falsifier
+    from app.providers.llm_provider import _langfuse, _LANGFUSE_ENABLED, _noop_ctx
+
+    settings = get_settings()  # noqa: F841 — kept for potential future use
+    from app.providers.llm_provider import _get_client
+    client = _get_client()  # Reuse the shared client to avoid extra HTTP connections.
+    model = "gemini-3.1-pro-preview"  # Use the dedicated falsifier model.
 
     h_desc = hypothesis.get("description", "No description")
+    h_id = hypothesis.get("hypothesis_id", "unknown")
+
+    span_ctx = (
+        _langfuse.start_as_current_observation(
+            as_type="span",
+            name=f"falsifier:{h_id}",
+            input={
+                "hypothesis_id": h_id,
+                "description": h_desc[:200],
+                "suspected_file": hypothesis.get("suspected_file", ""),
+                "suspected_function": hypothesis.get("suspected_function", ""),
+            },
+            metadata={"model": model},
+        )
+        if _LANGFUSE_ENABLED
+        else _noop_ctx()
+    )
 
     tools = [
         types.Tool(
@@ -363,121 +514,198 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
 
     logger.info(f"[falsifier] Starting: '{h_desc[:60]}'")
 
-    for turn in range(MAX_FALSIFIER_TURNS):
-        try:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model,
-                contents=history,
-                config=config,
-            )
-        except Exception as e:
-            logger.error(f"[falsifier] Turn {turn} API error: {e}")
-            break
-
-        candidate = response.candidates[0] if response.candidates else None
-        if not candidate or not candidate.content:
-            logger.warning(f"[falsifier] Turn {turn}: empty response")
-            break
-
-        model_content = candidate.content
-        history.append(model_content)
-
-        # Classify response parts
-        function_calls = []
-        has_code_execution = False
-        text_parts = []
-
-        for p in model_content.parts:
-            if p.function_call is not None:
-                function_calls.append(p.function_call)
-            if p.executable_code is not None:
-                has_code_execution = True
-            if p.code_execution_result is not None:
-                has_code_execution = True
-            if p.text:
-                text_parts.append(p.text)
-
-        full_text = " ".join(text_parts)
-
-        # --- Function calls: dispatch and log ---
-        if function_calls:
-            names = [fc.name for fc in function_calls]
-            logger.info(f"[falsifier] Turn {turn}: calling {names}")
-
-            function_response_parts = []
-            for fc in function_calls:
-                result = await _dispatch_tool(fc.name, dict(fc.args or {}))
-                logger.debug(
-                    f"[falsifier] {fc.name} → "
-                    f"\n{result[:400]}\n{'...' if len(result) > 400 else ''}"
-                )
-                function_response_parts.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=fc.name,
-                            response={"result": result},
-                            id=fc.id,
-                        )
+    verdict: FalsificationVerdict | None = None
+    with span_ctx as span_obs:
+        for turn in range(MAX_FALSIFIER_TURNS):
+            # On the final turn, force a verdict from the evidence collected so far.
+            is_last_turn = (turn == MAX_FALSIFIER_TURNS - 1)
+            if is_last_turn:
+                # Build a short evidence summary from prior tool results.
+                evidence_seen = []
+                for c in history:
+                    if hasattr(c, 'role') and c.role == "model":
+                        for p in c.parts:
+                            if p.text and len(p.text) > 30:
+                                evidence_seen.append(p.text[:200])
+                evidence_summary = " | ".join(evidence_seen[-3:]) if evidence_seen else "(no text yet)"
+                history.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(text=(
+                                f"FINAL TURN — you MUST output your verdict NOW. "
+                                f"No more tool calls allowed.\n"
+                                f"Based on ALL evidence gathered so far:\n{evidence_summary}\n\n"
+                                f"Choose: CORROBORATED (bug exists, no defenses) | "
+                                f"FALSIFIED (file missing OR defenses found) | "
+                                f"INSUFFICIENT_EVIDENCE (genuinely cannot determine).\n"
+                                f"Output the VERDICT block immediately."
+                            ))
+                        ],
                     )
                 )
-            history.append(
-                types.Content(role="user", parts=function_response_parts)
-            )
-            continue
+                logger.info(f"[falsifier] Turn {turn}: injecting FINAL_TURN forcing prompt")
 
-        # --- Check for verdict in text ---
-        has_verdict = any(
-            marker in full_text.lower()
-            for marker in ["verdict: corroborated", "verdict: falsified",
-                           "verdict: insufficient"]
-        )
 
-        if has_verdict:
-            logger.info(f"[falsifier] Turn {turn}: ✅ verdict")
-            return _parse_verdict(full_text, hypothesis)
-
-        if has_code_execution:
-            logger.info(f"[falsifier] Turn {turn}: code ran, nudging for verdict")
-            history.append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part(text="Now output your VERDICT.")],
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model,
+                    contents=history,
+                    config=config,
                 )
-            )
-            continue
+            except Exception as e:
+                logger.error(f"[falsifier] Turn {turn} API error: {e}")
+                break
 
-        if full_text:
-            logger.info(f"[falsifier] Turn {turn}: text without verdict, nudging")
-            history.append(
-                types.Content(
-                    role="user",
-                    parts=[types.Part(text="Output your VERDICT now.")],
+            candidate = response.candidates[0] if response.candidates else None
+            if not candidate or not candidate.content:
+                logger.warning(f"[falsifier] Turn {turn}: empty response")
+                break
+
+            model_content = candidate.content
+            history.append(model_content)
+
+            # Classify response parts.
+            function_calls = []
+            has_code_execution = False
+            text_parts = []
+
+            for p in model_content.parts:
+                if p.function_call is not None:
+                    function_calls.append(p.function_call)
+                if p.executable_code is not None:
+                    has_code_execution = True
+                if p.code_execution_result is not None:
+                    has_code_execution = True
+                if p.text:
+                    text_parts.append(p.text)
+
+            full_text = " ".join(text_parts)
+
+            # Function calls: dispatch and log.
+            if function_calls:
+                names = [fc.name for fc in function_calls]
+                logger.info(f"[falsifier] Turn {turn}: calling {names}")
+
+                function_response_parts = []
+                for fc in function_calls:
+                    result = await _dispatch_tool(fc.name, dict(fc.args or {}))
+                    logger.debug(
+                        f"[falsifier] {fc.name} → "
+                        f"\n{result[:400]}\n{'...' if len(result) > 400 else ''}"
+                    )
+                    function_response_parts.append(
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name=fc.name,
+                                response={"result": result},
+                                id=fc.id,
+                            )
+                        )
+                    )
+                history.append(
+                    types.Content(role="user", parts=function_response_parts)
                 )
+                continue
+
+            # Check for a verdict in the text response.
+            has_verdict = any(
+                marker in full_text.lower()
+                for marker in ["verdict: corroborated", "verdict: falsified",
+                               "verdict: insufficient"]
             )
-            continue
 
-        break
+            if has_verdict:
+                logger.info(f"[falsifier] Turn {turn}: ✅ verdict")
+                verdict = _parse_verdict(full_text, hypothesis)
+                break
 
-    # Try to salvage a verdict from accumulated text
-    all_text = " ".join(
-        p.text for c in history if c.role == "model"
-        for p in c.parts if p.text
-    )
-    if all_text and "verdict:" in all_text.lower():
-        return _parse_verdict(all_text, hypothesis)
+            if has_code_execution:
+                logger.info(f"[falsifier] Turn {turn}: code ran, nudging for verdict")
+                history.append(
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text="Now output your VERDICT.")],
+                    )
+                )
+                continue
 
-    logger.warning(f"[falsifier] Max turns ({MAX_FALSIFIER_TURNS}): '{h_desc[:60]}'")
-    return FalsificationVerdict(
-        hypothesis_id=h_desc[:80],
-        verdict="INSUFFICIENT_EVIDENCE",
-        reasoning=f"Loop exhausted after {MAX_FALSIFIER_TURNS} turns without verdict.",
-        confidence=0.0,
-    )
+            if full_text:
+                logger.info(f"[falsifier] Turn {turn}: text without verdict, nudging")
+                history.append(
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text="Output your VERDICT now.")],
+                    )
+                )
+                continue
+
+            break
+
+        # Try to recover a verdict from accumulated text.
+        if verdict is None:
+            all_text = " ".join(
+                p.text for c in history if c.role == "model"
+                for p in c.parts if p.text
+            )
+            if all_text and "verdict:" in all_text.lower():
+                verdict = _parse_verdict(all_text, hypothesis)
+            else:
+                # Final recovery attempt using the accumulated evidence.
+                logger.warning(f"[falsifier] Forcing emergency verdict for: '{h_desc[:60]}'")
+                emergency_history = list(history) + [
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=(
+                            "You did not produce a verdict. This is the final attempt. "
+                            "Review all tool results above and output a VERDICT block RIGHT NOW. "
+                            "If you genuinely cannot determine, output: "
+                            "VERDICT: INSUFFICIENT_EVIDENCE\nREASONING: (brief)\nCONFIDENCE: 0.3"
+                        ))]
+                    )
+                ]
+                try:
+                    emergency_response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model,
+                        contents=emergency_history,
+                        config=config,
+                    )
+                    emg_text = " ".join(
+                        p.text for p in (emergency_response.candidates[0].content.parts
+                                         if emergency_response.candidates else [])
+                        if p.text
+                    )
+                    if emg_text:
+                        verdict = _parse_verdict(emg_text, hypothesis)
+                        logger.info(f"[falsifier] Emergency verdict: {verdict.verdict}")
+                    else:
+                        raise ValueError("empty emergency response")
+                except Exception as e:
+                    logger.error(f"[falsifier] Emergency call failed: {e}")
+                    verdict = FalsificationVerdict(
+                        hypothesis_id=h_id,
+                        verdict="INSUFFICIENT_EVIDENCE",
+                        reasoning=f"All {MAX_FALSIFIER_TURNS} turns exhausted and emergency call failed: {e}",
+                        confidence=0.2,
+                    )
+
+        if _LANGFUSE_ENABLED and span_obs:
+            span_obs.update(
+                output={
+                    "verdict": verdict.verdict,
+                    "confidence": verdict.confidence,
+                    "reasoning": verdict.reasoning[:500],
+                    "counter_evidence": verdict.counter_evidence[:3],
+                }
+            )
+
+        return verdict
 
 
 # ---------------------------------------------------------------------------
-# Verdict Parser
+# Verdict parser
 # ---------------------------------------------------------------------------
 
 
@@ -513,7 +741,7 @@ def _parse_verdict(agent_output: str, hypothesis: dict) -> FalsificationVerdict:
             pass
 
     return FalsificationVerdict(
-        hypothesis_id=hypothesis.get("description", "")[:80],
+        hypothesis_id=hypothesis.get("hypothesis_id", hypothesis.get("description", "")[:80]),
         verdict=verdict,
         reasoning=reasoning[:600],
         counter_evidence=counter_evidence,
@@ -522,16 +750,19 @@ def _parse_verdict(agent_output: str, hypothesis: dict) -> FalsificationVerdict:
 
 
 # ---------------------------------------------------------------------------
-# Main Node (LangGraph integration)
+# Main node
 # ---------------------------------------------------------------------------
 
 
 async def falsifier_node(state: dict) -> dict:
     """
-    Epistemic Falsifier node: runs Popperian falsification for each hypothesis.
-    Hypotheses processed in parallel.
+    Run falsification for each hypothesis in the current state.
+    Hypotheses are processed in parallel.
     """
+    from app.providers.llm_provider import _langfuse, _LANGFUSE_ENABLED, _noop_ctx
+
     hypotheses = state.get("hypotheses", [])
+    incident_id = state.get("incident_id", "unknown")
 
     if not hypotheses:
         logger.info("[falsifier] No hypotheses to falsify")
@@ -539,30 +770,52 @@ async def falsifier_node(state: dict) -> dict:
 
     logger.info(f"[falsifier] Spawning {len(hypotheses)} loops (parallel)...")
 
-    tasks = [falsify_hypothesis(h) for h in hypotheses]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    verdicts = []
-    for r in results:
-        if isinstance(r, Exception):
-            logger.error(f"[falsifier] Exception: {r}")
-            verdicts.append(FalsificationVerdict(
-                hypothesis_id="unknown",
-                verdict="INSUFFICIENT_EVIDENCE",
-                reasoning=f"Exception: {r}",
-                confidence=0.0,
-            ).model_dump())
-        else:
-            verdicts.append(r.model_dump())
-
-    corroborated = sum(1 for v in verdicts if v["verdict"] == "CORROBORATED")
-    falsified = sum(1 for v in verdicts if v["verdict"] == "FALSIFIED")
-    insufficient = sum(1 for v in verdicts if v["verdict"] == "INSUFFICIENT_EVIDENCE")
-
-    logger.info(
-        f"[falsifier] ✅ {corroborated} corroborated | "
-        f"❌ {falsified} falsified | "
-        f"⚠️ {insufficient} insufficient"
+    node_ctx = (
+        _langfuse.start_as_current_observation(
+            as_type="span",
+            name="node:falsifier",
+            input={"incident_id": incident_id, "hypothesis_count": len(hypotheses)},
+            metadata={"node": "falsifier", "incident_id": incident_id},
+        )
+        if _LANGFUSE_ENABLED
+        else _noop_ctx()
     )
 
-    return {"falsifier_verdicts": verdicts}
+    with node_ctx as node_obs:
+        tasks = [falsify_hypothesis(h) for h in hypotheses]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        verdicts = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error(f"[falsifier] Exception: {r}")
+                verdicts.append(FalsificationVerdict(
+                    hypothesis_id="unknown",
+                    verdict="INSUFFICIENT_EVIDENCE",
+                    reasoning=f"Exception: {r}",
+                    confidence=0.0,
+                ).model_dump())
+            else:
+                verdicts.append(r.model_dump())
+
+        corroborated = sum(1 for v in verdicts if v["verdict"] == "CORROBORATED")
+        falsified = sum(1 for v in verdicts if v["verdict"] == "FALSIFIED")
+        insufficient = sum(1 for v in verdicts if v["verdict"] == "INSUFFICIENT_EVIDENCE")
+
+        logger.info(
+            f"[falsifier] ✅ {corroborated} corroborated | "
+            f"❌ {falsified} falsified | "
+            f"⚠️ {insufficient} insufficient"
+        )
+
+        if _LANGFUSE_ENABLED and node_obs:
+            node_obs.update(
+                output={
+                    "corroborated": corroborated,
+                    "falsified": falsified,
+                    "insufficient": insufficient,
+                    "total": len(verdicts),
+                }
+            )
+
+        return {"falsifier_verdicts": verdicts}

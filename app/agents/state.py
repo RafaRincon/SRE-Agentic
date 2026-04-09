@@ -4,9 +4,9 @@ from __future__ import annotations
 SRE Agent — Incident State Schema
 
 Central Pydantic models that flow through the LangGraph state.
-This is the "contract" between all nodes in the graph.
+These models define the data exchanged between graph nodes.
 
-Design principle: The LLM populates fields, but the FSM controls transitions.
+The LLM may populate fields, but state transitions remain under FSM control.
 """
 
 from pydantic import BaseModel, Field
@@ -127,19 +127,38 @@ def merge_epistemic_snapshots(
 
 
 class WorldModelProjection(BaseModel):
-    """Output of the World Model node — cognitive projection of the incident."""
+    """Output of the World Model node — compact operational triage context."""
+    # Reasoning is retained for traceability and debugging.
+    thinking_process: str = Field(
+        default="",
+        description="Step-by-step reasoning chain. This is kept for observability/debugging and is not part of the persisted incident document."
+    )
     affected_service: str = Field(description="Primary service affected (e.g., 'OrderingService', 'PaymentService')")
     affected_service_confidence: EpistemicStatus = EpistemicStatus.UNKNOWN
     blast_radius: list[str] = Field(default_factory=list, description="Other services potentially impacted")
     estimated_severity: Severity = Severity.UNKNOWN
-    severity_rationale: str = Field(default="", description="Why this severity was assigned")
+    severity_rationale: str = Field(default="", description="Legacy runtime-only rationale retained for backward compatibility; not persisted.")
     incident_category: str = Field(default="", description="e.g., 'RuntimeException', 'Timeout', 'DataCorruption'")
-    temporal_context: str = Field(default="", description="When did this start? Is it ongoing?")
+    temporal_context: str = Field(default="", description="Legacy runtime-only context retained for backward compatibility; not persisted.")
+    image_extracted_context: str = Field(
+        default="",
+        description=(
+            "If an image was provided, transcribe ALL diagnostic text visible in it: "
+            "exact error messages, stack traces, metric values, log lines, dashboard readings. "
+            "This field carries image evidence downstream so other nodes never need the raw blob. "
+            "Empty string if no image was provided."
+        )
+    )
     epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 class ExtractedEntity(BaseModel):
     """Output of the Slot Filler — structured entities from the report."""
+    # Reasoning is retained for traceability and debugging.
+    thinking_process: str = Field(
+        default="",
+        description="Step-by-step reasoning: which parts of the report were used to extract each entity, and why any field was left null. This is not persisted in the incident document."
+    )
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     stack_trace: Optional[str] = None
@@ -250,7 +269,7 @@ class IncidentState(BaseModel):
     # --- Consolidated output ---
     triage_summary: str = Field(default="", description="Final technical summary after consolidation")
     final_severity: Severity = Severity.UNKNOWN
-    verified_root_causes: list[str] = Field(default_factory=list, description="Hypotheses that survived both arbiter and falsifier")
+    verified_root_causes: list[str] = Field(default_factory=list, description="Hypotheses retained in the consolidated output, including their advisory Span/Falsifier verdict tags.")
     epistemic_context: dict = Field(default_factory=dict, description="Final immutable IOU context exposed downstream")
 
     # --- Actions ---

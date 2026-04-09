@@ -109,6 +109,51 @@ def _build_final_epistemic_context(
     }
 
 
+def _build_hypotheses_detail(hypotheses: list, span_by_id: dict, falsifier_by_id: dict) -> str:
+    """
+    Render each hypothesis with its evidence trail for the consolidator prompt.
+    """
+    lines = []
+    for i, hyp in enumerate(hypotheses):
+        hyp_id = hyp.get("hypothesis_id", "")
+        desc = hyp.get("description", "")
+        file_ = hyp.get("suspected_file", "")
+        func_ = hyp.get("suspected_function", "")
+        span = hyp.get("exact_span", "")[:120]
+        conf = hyp.get("confidence", 0.0)
+
+        sv = span_by_id.get(hyp_id, {})
+        sv_verdict = sv.get("verdict", "UNVERIFIED")
+        sv_score = sv.get("similarity_score", 0.0)
+        sv_file = sv.get("matched_file", "")
+
+        fv = falsifier_by_id.get(hyp_id, {})
+        fv_verdict = fv.get("verdict", "")
+        fv_reasoning = (fv.get("reasoning") or "")[:300]
+        fv_counter = (fv.get("counter_evidence") or [])
+        fv_confidence = fv.get("confidence", 0.0)
+
+        span_icon = {"VERIFIED": "✅", "PARTIAL_MATCH": "🔶", "HALLUCINATION": "❌", "ERROR": "⚠️"}.get(sv_verdict, "❓")
+        falsifier_icon = {"CORROBORATED": "✅", "FALSIFIED": "❌", "INSUFFICIENT_EVIDENCE": "⚠️"}.get(fv_verdict, "⚠️")
+
+        block = (
+            f"Hypothesis {i+1}: {desc}\n"
+            f"  File: {file_} | Function: {func_} | LLM confidence: {conf:.0%}\n"
+            f"  Exact span (LLM claim): \"{span}...\"\n"
+            f"  Span check {span_icon}: {sv_verdict} (score={sv_score:.2f})"
+            + (f" → matched in {sv_file}" if sv_file else "") + "\n"
+            f"  Falsifier {falsifier_icon}: {fv_verdict} (confidence={fv_confidence:.0%})\n"
+        )
+        if fv_reasoning:
+            block += f"  Falsifier reasoning: {fv_reasoning}\n"
+        if fv_counter:
+            block += f"  Counter-evidence: {'; '.join(str(c)[:120] for c in fv_counter[:2])}\n"
+
+        lines.append(block)
+
+    return "\n".join(lines)
+
+
 def _format_historical_context(context: dict) -> str:
     """Format historical context from the flywheel for the triage prompt."""
     if not context:
@@ -154,8 +199,12 @@ async def consolidator_node(state: dict) -> dict:
         verdict.get("hypothesis_id"): verdict for verdict in falsifier_verdicts
     }
 
-    verified_payloads = []
-    discarded_payloads = []
+    # Combine hypotheses with span and falsifier verdicts for prompt assembly.
+    all_payloads = []
+    tagged_root_causes = []
+
+    # Deterministic filter used only for FSM severity computation.
+    _fsm_verified_causes = []
 
     for hypothesis in hypotheses:
         hyp_id = hypothesis.get("hypothesis_id")
@@ -163,29 +212,52 @@ async def consolidator_node(state: dict) -> dict:
         span_verdict = span_by_id.get(hyp_id, {})
         falsifier_verdict = falsifier_by_id.get(hyp_id, {})
 
-        span_passed = span_verdict.get("verdict") in ("VERIFIED", "PARTIAL_MATCH")
-        was_falsified = falsifier_verdict.get("verdict") == "FALSIFIED"
+        sv_verdict = span_verdict.get("verdict", "UNVERIFIED")
+        fv_verdict = falsifier_verdict.get("verdict", "UNVERIFIED")
+        span_passed = sv_verdict in ("VERIFIED", "PARTIAL_MATCH")
+        was_falsified = fv_verdict == "FALSIFIED"
 
         payload = {
             "hypothesis": hypothesis,
             "span_verdict": span_verdict,
             "falsifier_verdict": falsifier_verdict,
         }
+        all_payloads.append(payload)
 
-        if span_passed and not was_falsified:
-            verified_payloads.append(payload)
+        # Build a compact label from both verdicts.
+        file_ = hypothesis.get('suspected_file', 'unknown')
+        desc = hypothesis.get('description', '')
+
+        if was_falsified:
+            confidence_label = "❌ Ruled Out"
+        elif span_passed and fv_verdict == "CORROBORATED":
+            confidence_label = "✅ Confirmed"
+        elif span_passed and fv_verdict == "INSUFFICIENT_EVIDENCE":
+            confidence_label = "🔶 Probable"
+        elif sv_verdict == "PARTIAL_MATCH":
+            confidence_label = "🔶 Probable"
+        elif sv_verdict == "HALLUCINATION":
+            confidence_label = "❌ Unverified"
         else:
-            discarded_payloads.append(payload)
-            if not span_passed:
-                logger.debug(f"[consolidator] REJECTED (span): {hyp_desc}")
-            elif was_falsified:
-                logger.info(f"[consolidator] FALSIFIED (Popper): {hyp_desc}")
+            confidence_label = "⚠️ Needs Review"
 
-    verified_hypotheses = [payload["hypothesis"] for payload in verified_payloads]
-    verified_root_causes = [
-        f"{hypothesis.get('suspected_file', 'unknown')}: {hypothesis.get('description', '')}"
-        for hypothesis in verified_hypotheses
-    ]
+        tagged_root_causes.append(
+            f"{file_}: {desc} [{confidence_label}]"
+        )
+
+        # Conservative filter for deterministic severity computation.
+        if span_passed and not was_falsified:
+            _fsm_verified_causes.append(
+                f"{file_}: {desc}"
+            )
+
+        # Logging
+        if was_falsified:
+            logger.info(f"[consolidator] FALSIFIED (Popper): {hyp_desc}")
+        elif not span_passed:
+            logger.debug(f"[consolidator] SPAN MISS: {hyp_desc} ({sv_verdict})")
+        else:
+            logger.debug(f"[consolidator] PASSED: {hyp_desc} (span={sv_verdict}, falsifier={fv_verdict})")
 
     falsifier_corroborated = {
         hyp_id for hyp_id, verdict in falsifier_by_id.items()
@@ -201,18 +273,17 @@ async def consolidator_node(state: dict) -> dict:
     }
 
     logger.info(
-        f"[consolidator] Epistemic filter: "
-        f"{len(hypotheses)} total → {len(span_verified)} span-verified → "
-        f"{len(verified_hypotheses)} passed falsification "
-        f"({len(falsifier_falsified)} falsified, "
-        f"{len(falsifier_corroborated)} corroborated)"
+        f"[consolidator] Epistemic tags: "
+        f"{len(hypotheses)} total | {len(span_verified)} span-verified | "
+        f"{len(falsifier_corroborated)} corroborated | "
+        f"{len(falsifier_falsified)} falsified | "
+        f"{len(_fsm_verified_causes)} passed conservative filter (for FSM)"
     )
 
-    # --- Compute severity deterministically ---
-    # Build a minimal state for severity computation
+    # --- Compute severity deterministically (uses conservative filter, not LLM) ---
     temp_state = IncidentState(
         hypotheses=hypotheses,
-        verified_root_causes=verified_root_causes,
+        verified_root_causes=_fsm_verified_causes,
     )
     if world_model:
         from app.agents.state import WorldModelProjection
@@ -221,12 +292,11 @@ async def consolidator_node(state: dict) -> dict:
     final_severity = compute_severity(temp_state)
 
     # --- Generate triage summary using LLM ---
-    discarded = [payload["hypothesis"] for payload in discarded_payloads]
     epistemic_context = _build_final_epistemic_context(
         world_model,
         entities,
-        verified_payloads,
-        discarded_payloads,
+        all_payloads,
+        [],  # No discarded — all hypotheses are tagged, LLM decides
     )
 
     # --- Search for matching runbooks ---
@@ -283,15 +353,17 @@ async def consolidator_node(state: dict) -> dict:
 
     from app.agents.prompts import CONSOLIDATOR_SYSTEM, build_consolidator_prompt
 
+    all_hypotheses_detail = _build_hypotheses_detail(hypotheses, span_by_id, falsifier_by_id)
+
     summary_prompt = build_consolidator_prompt(
         world_model=world_model,
         entities=entities,
         final_severity=final_severity.value,
-        verified_root_causes=verified_root_causes,
-        discarded=discarded,
         historical_context_formatted=_format_historical_context(state.get('historical_context', {})),
         runbook_section=runbook_section,
         epistemic_context_formatted=_format_epistemic_context(epistemic_context),
+        raw_report=state.get('raw_report', ''),
+        all_hypotheses_detail=all_hypotheses_detail,
     )
 
     try:
@@ -304,13 +376,13 @@ async def consolidator_node(state: dict) -> dict:
         triage_summary = (
             f"AUTOMATED TRIAGE: {final_severity.value} severity incident in "
             f"{world_model.get('affected_service', 'unknown')}. "
-            f"{len(verified_root_causes)} verified root causes, "
-            f"{len(discarded)} hypotheses discarded (failed evidence check)."
+            f"{len(tagged_root_causes)} hypotheses investigated, "
+            f"{len(_fsm_verified_causes)} passed conservative filter."
         )
 
     logger.info(
         f"[consolidator] Final severity: {final_severity.value}, "
-        f"verified: {len(verified_root_causes)}, discarded: {len(discarded)}"
+        f"tagged: {len(tagged_root_causes)}, fsm_verified: {len(_fsm_verified_causes)}"
     )
 
     # Write FSM transition + triage result to audit ledger (feeds flywheel)
@@ -328,8 +400,8 @@ async def consolidator_node(state: dict) -> dict:
             node_name="consolidator",
             data={
                 "final_severity": final_severity.value,
-                "verified_causes_count": len(verified_root_causes),
-                "discarded_count": len(discarded),
+                "tagged_causes_count": len(tagged_root_causes),
+                "fsm_verified_count": len(_fsm_verified_causes),
                 "recurrence_count": state.get("historical_context", {}).get(
                     "recurrence_count", 0
                 ),
@@ -342,7 +414,7 @@ async def consolidator_node(state: dict) -> dict:
     return {
         "triage_summary": triage_summary,
         "final_severity": final_severity.value,
-        "verified_root_causes": verified_root_causes,
+        "verified_root_causes": tagged_root_causes,
         "epistemic_context": copy.deepcopy(epistemic_context),
         "suggested_runbooks": [
             {
@@ -356,4 +428,8 @@ async def consolidator_node(state: dict) -> dict:
             for r in suggested_runbooks
         ],
         "status": IncidentStatus.TRIAGED,
+        # Evict heavy vectors — only needed by dedup and this node.
+        # Clearing prevents LangGraph from serializing ~30KB into every
+        # downstream checkpoint (create_ticket, notify_team).
+        "report_embedding": [],
     }

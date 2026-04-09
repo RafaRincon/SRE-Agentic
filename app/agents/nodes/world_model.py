@@ -1,9 +1,9 @@
 """
 SRE Agent — World Model Node (Track A)
 
-Uses the LLM to create a cognitive projection of the incident.
-This is NOT a diagnostic — it's a structured "imagination" of the
-incident's state across multiple business dimensions.
+Uses the LLM to produce a structured incident summary.
+This is not a diagnosis. It captures service, severity, blast radius,
+and category based on the available report context.
 
 Output: WorldModelProjection (service, severity, blast radius, category).
 """
@@ -151,47 +151,79 @@ def _build_world_model_snapshot(raw_report: str, projection: WorldModelProjectio
 
 async def world_model_node(state: dict) -> dict:
     """
-    Project a cognitive model of the incident.
+    Produce a structured incident summary.
     Uses multimodal input if an image is attached.
     """
+    from app.providers.llm_provider import _langfuse, _LANGFUSE_ENABLED, _noop_ctx
+
     raw_report = state.get("raw_report", "")
     has_image = state.get("has_image", False)
     image_data_b64 = state.get("image_data_b64", "")
     image_mime_type = state.get("image_mime_type", "image/png")
+    incident_id = state.get("incident_id", "unknown")
 
     from app.agents.prompts import WORLD_MODEL_SYSTEM, build_world_model_prompt
     prompt = build_world_model_prompt(raw_report)
 
-    try:
-        if has_image and image_data_b64:
-            image_bytes = base64.b64decode(image_data_b64)
-            projection = await llm_provider.generate_multimodal(
-                text_prompt=prompt,
-                image_bytes=image_bytes,
-                image_mime_type=image_mime_type,
-                system_instruction=WORLD_MODEL_SYSTEM,
-                response_schema=WorldModelProjection,
-            )
-        else:
-            projection = await llm_provider.generate_structured(
-                prompt=prompt,
-                response_schema=WorldModelProjection,
-                system_instruction=WORLD_MODEL_SYSTEM,
-            )
-
-        logger.info(
-            f"[world_model] Projected: service={projection.affected_service}, "
-            f"severity={projection.estimated_severity}, "
-            f"blast_radius={projection.blast_radius}"
+    node_ctx = (
+        _langfuse.start_as_current_observation(
+            as_type="span",
+            name="node:world_model",
+            input={"incident_id": incident_id, "has_image": has_image},
+            metadata={"node": "world_model", "incident_id": incident_id},
         )
+        if _LANGFUSE_ENABLED
+        else _noop_ctx()
+    )
+    try:
+        with node_ctx as node_obs:
+            if has_image and image_data_b64:
+                image_bytes = base64.b64decode(image_data_b64)
+                projection = await llm_provider.generate_multimodal(
+                    text_prompt=prompt,
+                    image_bytes=image_bytes,
+                    image_mime_type=image_mime_type,
+                    system_instruction=WORLD_MODEL_SYSTEM,
+                    response_schema=WorldModelProjection,
+                )
+            else:
+                projection = await llm_provider.generate_structured(
+                    prompt=prompt,
+                    response_schema=WorldModelProjection,
+                    system_instruction=WORLD_MODEL_SYSTEM,
+                )
 
-        if snapshot_is_empty(projection.epistemic_snapshot):
-            projection.epistemic_snapshot = _build_world_model_snapshot(
-                raw_report,
-                projection,
+            logger.info(
+                f"[world_model] Projected: service={projection.affected_service}, "
+                f"category={projection.incident_category}, "
+                f"blast_radius={projection.blast_radius}"
             )
 
-        return {"world_model": projection.model_dump()}
+            if snapshot_is_empty(projection.epistemic_snapshot):
+                projection.epistemic_snapshot = _build_world_model_snapshot(
+                    raw_report,
+                    projection,
+                )
+
+            # Remove the raw image payload after extraction.
+            # The extracted text is forwarded through image_extracted_context so
+            # downstream nodes can reuse the same diagnostic content.
+            result = {
+                "world_model": projection.model_dump(),
+                "image_data_b64": "",   # avoid storing the binary payload in later checkpoints
+                "image_extracted_context": projection.image_extracted_context or "",
+            }
+
+            if _LANGFUSE_ENABLED and node_obs:
+                node_obs.update(
+                    output={
+                        "affected_service": projection.affected_service,
+                        "incident_category": projection.incident_category,
+                        "blast_radius": projection.blast_radius,
+                        "thinking_process": projection.thinking_process[:500] if projection.thinking_process else "",
+                    }
+                )
+            return result
 
     except Exception as e:
         logger.error(f"[world_model] Error: {e}")

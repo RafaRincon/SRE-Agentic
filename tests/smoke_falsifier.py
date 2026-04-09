@@ -147,7 +147,7 @@ CASES = [
                 "En algún lugar del pipeline de checkout, un objeto de pago es "
                 "desreferenciado sin validar su nullabilidad, causando un crash esporádico."
             ),
-            # Sin suspected_file — el modelo tiene que manejar esto gracefully
+            # Sin `suspected_file`; el modelo debe manejar el caso sin fallar.
             "confidence": 0.2,
         },
     },

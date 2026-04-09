@@ -59,6 +59,8 @@ async def main():
                     
             if "triage_summary" in node_state:
                 state_text.append(f"\nConsolidator finished. Final Severity: {node_state.get('final_severity')}\n", style="bold green")
+                state_text.append(f"Triage Summary:\n", style="bold white")
+                state_text.append(f"{node_state.get('triage_summary')}\n", style="dim white")
                 
             if "ticket" in node_state:
                 state_text.append(f"Ticket Created: {node_state['ticket'].get('ticket_url')}", style="bold blue")

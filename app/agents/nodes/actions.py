@@ -2,13 +2,16 @@
 SRE Agent — Actions Node
 
 Creates tickets and sends notifications.
-Uses provider interfaces (ABC pattern) so real/mock implementations
+Uses provider interfaces (ABC pattern) so production/test implementations
 are interchangeable.
 """
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from app.agents.persistence import (
+    normalize_entities_for_persistence,
+    normalize_world_model_for_persistence,
+)
 from app.agents.state import IncidentStatus, TicketInfo, NotificationInfo
 
 logger = logging.getLogger(__name__)
@@ -16,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 async def create_ticket_node(state: dict) -> dict:
     """
-    Create a ticket in the ticketing system (mock).
+    Create a ticket in the ticketing system.
     Transitions FSM: TRIAGED → TICKET_CREATED.
     """
     incident_id = state.get("incident_id", "unknown")
@@ -24,7 +27,7 @@ async def create_ticket_node(state: dict) -> dict:
     triage_summary = state.get("triage_summary", "No summary available")
     final_severity = state.get("final_severity", "UNKNOWN")
 
-    # --- Mock Jira ticket creation ---
+    # Ticket creation stub.
     ticket_id = f"SRE-{uuid.uuid4().hex[:6].upper()}"
     service = world_model.get("affected_service", "unknown")
 
@@ -78,8 +81,9 @@ async def create_ticket_node(state: dict) -> dict:
 
 async def notify_team_node(state: dict) -> dict:
     """
-    Notify the assigned team via Slack and Email (mock).
+    Notify the assigned team via Slack and email.
     Transitions FSM: TICKET_CREATED → TEAM_NOTIFIED.
+    Also persists the fully triaged incident to Cosmos for the flywheel.
     """
     ticket = state.get("ticket", {})
     triage_summary = state.get("triage_summary", "")
@@ -89,7 +93,7 @@ async def notify_team_node(state: dict) -> dict:
     ticket_id = ticket.get("ticket_id", "unknown")
     assigned_team = ticket.get("assigned_team", "Platform Team")
 
-    # --- Mock Slack notification ---
+    # Slack notification stub.
     slack_message = (
         f"🚨 *New Incident* [{final_severity}] — {ticket_id}\n"
         f"Team: {assigned_team}\n"
@@ -98,7 +102,7 @@ async def notify_team_node(state: dict) -> dict:
     )
     logger.info(f"[actions] 📢 Slack notification sent to #{assigned_team}:\n{slack_message}")
 
-    # --- Mock Email notification ---
+    # Email notification stub.
     email_subject = f"[{final_severity}] Incident {ticket_id} — Action Required"
     logger.info(f"[actions] 📧 Email sent to {assigned_team}@eshop.com: {email_subject}")
 
@@ -108,6 +112,41 @@ async def notify_team_node(state: dict) -> dict:
         reporter_notified=False,
         reporter_notification_channel="",
     )
+
+    # Persist the triaged incident to Cosmos.
+    # This keeps deduplication and retrieval available across entry points.
+    try:
+        from app.providers import db_provider
+
+        persist_data = {
+            "id": incident_id,
+            "incident_id": incident_id,
+            "status": IncidentStatus.TEAM_NOTIFIED.value,
+            "created_at": state.get("created_at", ""),
+            "raw_report": state.get("raw_report", ""),
+            "world_model": normalize_world_model_for_persistence(
+                state.get("world_model", {})
+            ),
+            "entities": normalize_entities_for_persistence(
+                state.get("entities", {})
+            ),
+            "triage_summary": triage_summary,
+            "final_severity": final_severity,
+            "verified_root_causes": state.get("verified_root_causes", []),
+            "ticket": ticket,
+            "notifications": notifications.model_dump(),
+            "suggested_runbooks": state.get("suggested_runbooks", []),
+            "occurrence_count": 1,
+        }
+        # Store the report embedding for future duplicate detection.
+        report_embedding = state.get("report_embedding")
+        if report_embedding:
+            persist_data["report_embedding"] = report_embedding
+
+        db_provider.upsert_incident(persist_data)
+        logger.info(f"[actions] 💾 Incident {incident_id} persisted to Cosmos")
+    except Exception as e:
+        logger.warning(f"[actions] Failed to persist incident {incident_id}: {e}")
 
     return {
         "notifications": notifications.model_dump(),

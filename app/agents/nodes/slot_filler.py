@@ -94,28 +94,52 @@ def _build_entities_snapshot(raw_report: str, entities: ExtractedEntity):
 
 async def slot_filler_node(state: dict) -> dict:
     """Extract structured entities from the incident report."""
+    from app.providers.llm_provider import _langfuse, _LANGFUSE_ENABLED, _noop_ctx
+
     raw_report = state.get("raw_report", "")
+    incident_id = state.get("incident_id", "unknown")
 
     from app.agents.prompts import SLOT_FILLER_SYSTEM, build_slot_filler_prompt
     prompt = build_slot_filler_prompt(raw_report)
 
+    node_ctx = (
+        _langfuse.start_as_current_observation(
+            as_type="span",
+            name="node:slot_filler",
+            input={"incident_id": incident_id},
+            metadata={"node": "slot_filler", "incident_id": incident_id},
+        )
+        if _LANGFUSE_ENABLED
+        else _noop_ctx()
+    )
     try:
-        entities = await llm_provider.generate_structured(
-            prompt=prompt,
-            response_schema=ExtractedEntity,
-            system_instruction=SLOT_FILLER_SYSTEM,
-        )
+        with node_ctx as node_obs:
+            entities = await llm_provider.generate_structured(
+                prompt=prompt,
+                response_schema=ExtractedEntity,
+                system_instruction=SLOT_FILLER_SYSTEM,
+            )
 
-        logger.info(
-            f"[slot_filler] Extracted: error_code={entities.error_code}, "
-            f"endpoint={entities.endpoint_affected}, "
-            f"files={entities.file_references}"
-        )
+            logger.info(
+                f"[slot_filler] Extracted: error_code={entities.error_code}, "
+                f"endpoint={entities.endpoint_affected}, "
+                f"files={entities.file_references}"
+            )
 
-        if snapshot_is_empty(entities.epistemic_snapshot):
-            entities.epistemic_snapshot = _build_entities_snapshot(raw_report, entities)
+            if snapshot_is_empty(entities.epistemic_snapshot):
+                entities.epistemic_snapshot = _build_entities_snapshot(raw_report, entities)
 
-        return {"entities": entities.model_dump()}
+            if _LANGFUSE_ENABLED and node_obs:
+                node_obs.update(
+                    output={
+                        "error_code": entities.error_code,
+                        "error_message": (entities.error_message or "")[:200],
+                        "endpoint_affected": entities.endpoint_affected,
+                        "file_references": entities.file_references,
+                        "thinking_process": entities.thinking_process[:500] if entities.thinking_process else "",
+                    }
+                )
+            return {"entities": entities.model_dump()}
 
     except Exception as e:
         logger.error(f"[slot_filler] Error: {e}")
