@@ -121,10 +121,10 @@ async def expand_queries(raw_report: str, world_model: dict, entities: dict) -> 
     Falls back to manual extraction if LLM fails.
     """
     context = f"""Incident: {raw_report[:500]}
-Service: {world_model.get('affected_service', 'unknown')}
-Error: {entities.get('error_code', '')} {entities.get('error_message', '')}
-Endpoint: {entities.get('endpoint_affected', '')}
-Stack: {entities.get('stack_trace', '')[:200]}"""
+Service: {world_model.get('affected_service') or 'unknown'}
+Error: {entities.get('error_code') or ''} {entities.get('error_message') or ''}
+Endpoint: {entities.get('endpoint_affected') or ''}
+Stack: {(entities.get('stack_trace') or '')[:200]}"""
 
     from app.agents.prompts import RISK_EXPANSION_SYSTEM, build_risk_expansion_prompt
     
