@@ -130,19 +130,18 @@ def build_graph(checkpointer=None):
     # Entry
     builder.set_entry_point("n_intake")
 
-    # Fan-out from intake into both tracks (parallel)
-    builder.add_edge("n_intake", "n_world_model")         # Track A
-    builder.add_edge("n_intake", "n_risk_hypothesizer")   # Track B
-
-    # Track A chain
+    # Sequential execution to guarantee context is fully built and available to Track B
+    builder.add_edge("n_intake", "n_world_model")
     builder.add_edge("n_world_model", "n_slot_filler")
-
-    # Track B chain: hypothesizer → span arbiter → Popperian falsifier
+    
+    # Track B starts running with the context built by Track A
+    builder.add_edge("n_slot_filler", "n_risk_hypothesizer")
+    
+    # Track B internal chain
     builder.add_edge("n_risk_hypothesizer", "n_span_arbiter")
     builder.add_edge("n_span_arbiter", "n_falsifier")
 
-    # Fan-in: both tracks merge at consolidator
-    builder.add_edge("n_slot_filler", "n_consolidator")
+    # Merge into logical finalizer
     builder.add_edge("n_falsifier", "n_consolidator")
 
     # Post-consolidation
