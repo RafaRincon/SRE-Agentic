@@ -16,11 +16,16 @@ import inspect
 import logging
 import os
 import uuid
+from pathlib import Path
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -197,6 +202,11 @@ app = FastAPI(
 )
 
 _cors_origins = _env_cors_origins()
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+INDEX_FILE = STATIC_DIR / "index.html"
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -204,6 +214,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Serve the single-page frontend without changing backend API routes."""
+    return FileResponse(INDEX_FILE)
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +271,12 @@ def _validate_image_upload(image: UploadFile, size_bytes: int) -> None:
             status_code=413,
             detail=f"Image exceeds {settings.app_max_upload_bytes} bytes",
         )
+def _persistable_state(state: dict) -> dict:
+    return {
+        "id": state["incident_id"],
+        "incident_id": state["incident_id"],
+        **{key: value for key, value in state.items() if key != "image_data_b64"},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +316,7 @@ async def readyz():
 
 @app.post("/incident", response_model=IncidentResponse)
 async def submit_incident(
+    incident_id: str = Form(""),
     report: str = Form(...),
     reporter_name: str = Form(""),
     reporter_email: str = Form(""),
@@ -307,6 +330,8 @@ async def submit_incident(
     """
     incident_id = uuid.uuid4().hex
     logger.info("New incident submitted: %s", incident_id)
+    incident_id = (incident_id or "").strip() or uuid.uuid4().hex
+    logger.info(f"📥 New incident submitted: {incident_id}")
 
     initial_state = {
         "incident_id": incident_id,
@@ -340,6 +365,96 @@ async def submit_incident(
         )
 
     graph = get_graph()
+    initial_state["ticket"] = {}
+    initial_state["notifications"] = {}
+    initial_state["historical_context"] = {}
+
+    try:
+        db_provider.upsert_incident(_persistable_state(initial_state))
+    except Exception as e:
+        logger.error(f"❌ Failed to create initial incident document for {incident_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to register incident: {str(e)}",
+        )
+
+    # --- DEDUPLICATION CHECK ---
+    # Before running the expensive pipeline, check if a similar open incident
+    # already exists. Uses cosine similarity in-memory (viable for <100 open incidents).
+    report_embedding = None
+    try:
+        report_embedding = await llm_provider.generate_embedding(
+            report[:500], task_type="RETRIEVAL_QUERY"
+        )
+        duplicate_result = db_provider.find_duplicate_incident(
+            query_vector=report_embedding,
+            similarity_threshold=0.80,
+        )
+        if duplicate_result:
+            parent_id = duplicate_result["incident_id"]
+            similarity = duplicate_result["similarity"]
+            logger.info(
+                f"🔁 Duplicate detected: {incident_id} → {parent_id} "
+                f"(similarity={similarity:.2f})"
+            )
+
+            # Link this report to the parent incident
+            db_provider.upsert_incident({
+                "id": incident_id,
+                "incident_id": incident_id,
+                "status": "DUPLICATE",
+                "duplicate_of": parent_id,
+                "raw_report": report,
+                "created_at": initial_state["created_at"],
+                "similarity_score": similarity,
+            })
+
+            # Increment occurrence count on parent
+            parent = db_provider.get_incident(parent_id)
+            if parent:
+                occurrence_count = parent.get("occurrence_count", 1) + 1
+                parent["occurrence_count"] = occurrence_count
+                db_provider.upsert_incident(parent)
+                logger.info(
+                    f"📈 Parent incident {parent_id} now has "
+                    f"{occurrence_count} occurrences"
+                )
+
+            return IncidentResponse(
+                incident_id=incident_id,
+                status="DUPLICATE",
+                duplicate_of=parent_id,
+                triage_summary=(
+                    f"This incident is a duplicate of {parent_id} "
+                    f"(similarity: {similarity:.0%}). "
+                    f"See existing ticket for triage details."
+                ),
+                final_severity=duplicate_result.get("severity", ""),
+                ticket_id=duplicate_result.get("ticket_id", ""),
+                ticket_url=duplicate_result.get("ticket_url", ""),
+                assigned_team=duplicate_result.get("assigned_team", ""),
+            )
+
+    except Exception as e:
+        logger.warning(f"⚠️ Dedup check failed (proceeding with full triage): {e}")
+
+    # Run the LangGraph pipeline
+    graph = get_graph()
+
+    # Inject the report embedding (already generated for dedup) so the consolidator
+    # can reuse it for runbook search with zero extra API calls
+    if report_embedding:
+        initial_state["report_embedding"] = report_embedding
+
+    initial_state["status"] = IncidentStatus.TRIAGING.value
+    try:
+        db_provider.upsert_incident(_persistable_state(initial_state))
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to persist triaging state for {incident_id}: {e}")
+
+    # Thread config: each incident_id is its own checkpointer thread.
+    # This means the full node-by-node state is persisted in Cosmos
+    # agent_checkpoints and can be resumed or inspected at any time.
     thread_config = {"configurable": {"thread_id": incident_id}}
 
     try:
@@ -404,6 +519,8 @@ async def get_incident(incident_id: str):
         thread_config = {"configurable": {"thread_id": incident_id}}
         snapshot = graph.get_state(thread_config)
         if snapshot and snapshot.values:
+            snapshot_values = snapshot.values
+            # Attach lightweight checkpoint metadata (exclude large fields)
             incident["_checkpoint"] = {
                 "next_nodes": list(snapshot.next) if snapshot.next else [],
                 "last_node": (
@@ -411,8 +528,8 @@ async def get_incident(incident_id: str):
                     if snapshot.metadata and snapshot.metadata.get("writes")
                     else None
                 ),
-                "status": snapshot.values.get("status", ""),
-                "final_severity": snapshot.values.get("final_severity", ""),
+                "status": snapshot_values.get("status", ""),
+                "final_severity": snapshot_values.get("final_severity", ""),
             }
     except Exception:
         pass

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SRE Agent · Cognition by Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+[data-theme="light"]{
+  --bg:#FFFFFF;--bg2:#F7F7F9;--bg3:#EFEFF2;--bg4:#E6E6EC;--border:#E2E2EA;--border2:#CDCDD8;
+  --text:#0D0D18;--text2:#3A3A52;--text3:#6B6B85;--text4:#9898B0;--accent:#0057FF;
+  --accent-bg:#EEF3FF;--accent-border:#BFCFFF;--red:#D63030;--red-bg:#FEF0F0;--red-border:#FBCBCB;
+  --amber:#B06000;--amber-bg:#FFF8EE;--amber-border:#FCDFA0;--green:#0A7A4A;--green-bg:#EDFAF4;
+  --green-border:#A3E6C8;--violet:#6B30C4;--violet-bg:#F3EEFF;--violet-border:#D4BEFF;
+  --shadow:rgba(0,0,0,.06);--topbar-bg:#FFFFFF;--toggle-bg:#EFEFF2;--toggle-knob:#FFFFFF;
+  --toggle-knob-shadow:rgba(0,0,0,.15)
+}
+[data-theme="dark"]{
+  --bg:#13131A;--bg2:#0A0A0F;--bg3:#1C1C26;--bg4:#252532;--border:#252532;--border2:#3A3A4E;
+  --text:#F0F0F8;--text2:#C2C2D4;--text3:#8888A0;--text4:#5A5A72;--accent:#4D8FFF;
+  --accent-bg:rgba(77,143,255,.1);--accent-border:rgba(77,143,255,.25);--red:#FF5A5A;
+  --red-bg:rgba(255,90,90,.08);--red-border:rgba(255,90,90,.2);--amber:#FFB340;
+  --amber-bg:rgba(255,179,64,.08);--amber-border:rgba(255,179,64,.2);--green:#00C87A;
+  --green-bg:rgba(0,200,122,.08);--green-border:rgba(0,200,122,.2);--violet:#A855F7;
+  --violet-bg:rgba(168,85,247,.1);--violet-border:rgba(168,85,247,.2);--shadow:rgba(0,0,0,.3);
+  --topbar-bg:#13131A;--toggle-bg:#252532;--toggle-knob:#0A0A0F;--toggle-knob-shadow:rgba(0,0,0,.4)
+}
+body,.topbar,.card,.sidebar-card,.analysis-card,.summary-wrap,.progress-wrap,.result-hero,.met,.inc,.upload-zone,.sev-opt,.field input,.field textarea,.bottom-grid .card,.banner{transition:background .22s ease,border-color .22s ease,color .18s ease}
+body{font-family:'Inter',sans-serif;background:var(--bg2);color:var(--text2);min-height:100vh;font-size:14px;line-height:1.5}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 28px;height:54px;background:var(--topbar-bg);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;column-gap:18px}
+.brand{display:flex;align-items:center;gap:10px}.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+.brand-mark svg{width:14px;height:14px;stroke:#fff;stroke-width:2.2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.brand-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.02em}.brand-sep{width:1px;height:14px;background:var(--border2);margin:0 6px}.brand-by{font-size:11px;color:var(--text4)}
+.nav-center{display:flex;gap:2px;justify-self:center}.nav-btn{font-family:'Inter',sans-serif;font-size:13px;font-weight:400;padding:6px 18px;border-radius:8px;border:none;background:transparent;color:var(--text3);cursor:pointer;transition:all .15s}
+.nav-btn:hover{background:var(--bg3);color:var(--text2)}.nav-btn.active{background:var(--bg3);color:var(--text);font-weight:500}
+.topbar-right{display:flex;align-items:center;gap:14px;justify-self:end}
+.theme-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background .15s}.theme-toggle:hover{background:var(--bg3)}
+.toggle-icon{font-size:13px;line-height:1;width:16px;text-align:center;color:var(--text3)}.toggle-track{width:36px;height:20px;border-radius:99px;background:var(--toggle-bg);border:1px solid var(--border2);position:relative;cursor:pointer;transition:background .22s,border-color .22s;flex-shrink:0}
+[data-theme="dark"] .toggle-track{background:var(--accent);border-color:var(--accent)}.toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--toggle-knob);box-shadow:0 1px 3px var(--toggle-knob-shadow);transition:transform .22s ease,background .22s}
+[data-theme="dark"] .toggle-knob{transform:translateX(16px);background:#fff}
+.page{padding:28px;max-width:980px;margin:0 auto}.screen{display:none}.screen.active{display:block}
+.card{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:14px}.card-sm{border-radius:10px;padding:16px 18px}
+.card-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:18px}
+.field{margin-bottom:16px}.field:last-child{margin-bottom:0}.field label{display:block;font-size:12px;font-weight:500;color:var(--text3);margin-bottom:6px;letter-spacing:.02em}
+.field input,.field textarea{width:100%;padding:10px 13px;font-size:13px;font-family:'Inter',sans-serif;border:1px solid var(--border2);border-radius:8px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s,background .22s,color .18s}
+.field input:focus,.field textarea:focus{border-color:var(--accent)}.field input::placeholder,.field textarea::placeholder{color:var(--text4)}.field textarea{min-height:110px;resize:vertical;line-height:1.6}.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.upload-zone{border:1px dashed var(--border2);border-radius:8px;padding:22px;text-align:center;background:var(--bg2);cursor:pointer;transition:border-color .15s,background .22s}.upload-zone:hover,.upload-zone.drag{border-color:var(--accent);background:var(--accent-bg)}
+.upload-icon{width:36px;height:36px;border-radius:8px;background:var(--bg3);display:flex;align-items:center;justify-content:center;margin:0 auto 10px}.upload-icon svg{width:16px;height:16px;stroke:var(--text3);stroke-width:1.8;fill:none;stroke-linecap:round}
+.upload-zone p{font-size:12px;color:var(--text3)}.upload-zone span{font-size:11px;color:var(--text4)}#file-name{margin-top:8px;font-size:11px;color:var(--accent)}
+.sev-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sev-opt{padding:10px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;text-align:left;background:var(--bg);transition:all .15s}.sev-opt:hover{border-color:var(--border2);background:var(--bg2)}
+.sev-opt.active{box-shadow:0 0 0 1px var(--accent) inset}.sev-opt .so-name{font-size:12px;font-weight:500;color:var(--text2)}.sev-opt .so-desc{font-size:10px;color:var(--text4);margin-top:2px}
+.sev-opt.s-urgent{border-color:var(--red-border);background:var(--red-bg)}.sev-opt.s-urgent .so-name{color:var(--red)}.sev-opt.s-important{border-color:var(--amber-border);background:var(--amber-bg)}.sev-opt.s-important .so-name{color:var(--amber)}.sev-opt.s-medium{border-color:var(--accent-border);background:var(--accent-bg)}.sev-opt.s-medium .so-name{color:var(--accent)}.sev-opt.s-low{border-color:var(--green-border);background:var(--green-bg)}.sev-opt.s-low .so-name{color:var(--green)}
+.btn-submit,.btn-secondary{width:100%;padding:12px;margin-top:16px;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;border:none;border-radius:8px;cursor:pointer;letter-spacing:.02em;transition:all .15s}
+.btn-submit{background:var(--accent);color:#fff;box-shadow:0 2px 14px rgba(0,87,255,.22)}.btn-submit:hover{filter:brightness(1.1);transform:translateY(-1px);box-shadow:0 4px 22px rgba(0,87,255,.32)}.btn-submit:disabled{opacity:.7;cursor:wait;transform:none}
+.btn-secondary{background:var(--bg3);color:var(--text2)}.btn-secondary:hover{background:var(--bg4)}
+.submit-progress{margin-top:14px;padding:14px 16px;border-radius:10px;border:1px solid var(--accent-border);background:var(--accent-bg);display:none}
+.submit-progress.show{display:block}
+.submit-progress-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.submit-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(0,87,255,.18);border-top-color:var(--accent);animation:spin .8s linear infinite;flex-shrink:0}
+.submit-progress-title{font-size:12px;font-weight:600;color:var(--text)}
+.submit-progress-copy{font-size:11px;color:var(--text3)}
+.submit-progress-bar{height:6px;border-radius:999px;background:rgba(0,87,255,.12);overflow:hidden;margin-top:10px}
+.submit-progress-fill{height:100%;width:22%;border-radius:999px;background:linear-gradient(90deg,var(--accent) 0%,#67a0ff 100%);transition:width .25s ease}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sidebar-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px}.sidebar-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+.ps{display:flex;gap:10px;margin-bottom:11px}.ps:last-child{margin-bottom:0}.ps-n{width:20px;height:20px;border-radius:50%;font-size:9px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.ps-txt{font-size:12px;color:var(--text3);line-height:1.45}.ps-txt strong{color:var(--text);font-weight:500}.dedup-note{font-size:11px;color:var(--text4);line-height:1.5;padding:10px 12px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);margin-top:10px}
+.submit-status-card{display:none}
+.submit-status-card.show{display:block}
+.submit-status-meta{font-family:'JetBrains Mono','Inter',monospace;font-size:11px;color:var(--text4);margin-bottom:10px}
+.submit-status-copy{font-size:12px;color:var(--text3);line-height:1.5;margin-bottom:14px}
+.submit-status-list{display:flex;flex-direction:column;gap:10px}
+.submit-status-item{display:flex;gap:10px;align-items:flex-start}
+.submit-status-dot{width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--bg2);color:var(--text4);display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;flex-shrink:0;margin-top:1px}
+.submit-status-item.done .submit-status-dot{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.submit-status-item.active .submit-status-dot{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px rgba(77,143,255,.12)}
+.submit-status-body{min-width:0}
+.submit-status-label{font-size:12px;color:var(--text2);font-weight:500}
+.submit-status-hint{font-size:11px;color:var(--text4);margin-top:2px;line-height:1.4}
+.sub-tabs{display:none;gap:0;margin-bottom:22px;border-bottom:1px solid var(--border)}.sub-tab{font-size:13px;font-weight:400;padding:10px 22px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+.sub-tab:hover{color:var(--text2)}.sub-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}.sub-screen{display:none}.sub-screen.active{display:block}
+.banner{margin-bottom:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:12px;display:none}.banner.show{display:block}.banner.error{background:var(--red-bg);border-color:var(--red-border);color:var(--red)}.banner.warn{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber)}.banner.info{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.result-hero{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:14px;display:flex;align-items:flex-start;justify-content:space-between;position:relative;overflow:hidden}.result-hero::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--hero-accent,var(--accent));border-radius:14px 14px 0 0}
+.rh-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text4);margin-bottom:6px}.rh-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);line-height:1.3;max-width:520px}.rh-time{font-size:11px;color:var(--text4);margin-top:6px}
+.sev-badge{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:8px 18px;border-radius:8px;letter-spacing:.03em;white-space:nowrap;margin-top:4px}.sev-badge.urgent{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}.sev-badge.important{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.sev-badge.medium{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.sev-badge.low{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.progress-wrap{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:22px 24px;margin-bottom:14px}.progress-title{font-family:'Syne',sans-serif;font-size:11px;font-weight:600;color:var(--text4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:18px}
+.steps{display:flex;align-items:flex-start}.step-item{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}.step-item:not(:last-child)::after{content:'';position:absolute;top:14px;left:58%;width:84%;height:1px;background:var(--border);z-index:0}.step-item.done:not(:last-child)::after{background:var(--accent);opacity:.4}
+.step-circle{width:28px;height:28px;border-radius:50%;border:1px solid var(--border2);background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text4);position:relative;z-index:1}.step-item.done .step-circle{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent)}
+.step-label{font-size:10px;color:var(--text4);margin-top:6px;text-align:center;line-height:1.3}.step-item.done .step-label{color:var(--accent)}.progress-note{font-size:12px;color:var(--text3);text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.analysis-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px}.ac-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.ac-badge{font-size:9px;font-weight:600;padding:3px 9px;border-radius:99px;letter-spacing:.05em;text-transform:uppercase}.ac-badge.diag{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.ac-badge.verif{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ac-title{font-size:12px;font-weight:500;color:var(--text2)}
+.info-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}.info-row:last-child{border-bottom:none}.ir-k{color:var(--text3);flex:0 0 132px}.ir-v{color:var(--text);font-weight:500;text-align:right;flex:1;min-width:0;max-width:none;overflow-wrap:anywhere;word-break:break-word}
+.cause-item{padding:10px 0;border-bottom:1px solid var(--border)}.cause-item:last-child{border-bottom:none}.cause-tags{display:flex;align-items:center;gap:6px;margin-bottom:5px}.ctag{font-size:9px;font-weight:600;padding:2px 8px;border-radius:99px;letter-spacing:.04em}.ctag.confirmed{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.ctag.possible{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.ctag.discarded{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.ctag.recurring{background:var(--violet-bg);color:var(--violet);border:1px solid var(--violet-border)}
+.cause-text{font-size:12px;color:var(--text2);line-height:1.4}.cause-note{font-size:10px;color:var(--text4);margin-top:3px}
+.cause-file{font-size:10px;color:var(--text4);font-family:'JetBrains Mono','Inter',monospace;margin-top:4px}
+.causes-footer{display:none;align-items:center;justify-content:space-between;gap:10px;padding-top:12px;margin-top:8px;border-top:1px solid var(--border)}
+.causes-footer.show{display:flex}.causes-page{font-size:11px;color:var(--text4)}
+.causes-nav{display:flex;gap:8px}.causes-nav button{padding:6px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);font-size:11px;cursor:pointer}.causes-nav button:disabled{opacity:.45;cursor:not-allowed}
+.summary-wrap{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px}.summary-text{font-size:13px;color:var(--text3);line-height:1.65}.summary-text strong{color:var(--text);font-weight:600}.summary-text p{margin:0 0 12px}.summary-text p:last-child{margin-bottom:0}.summary-text ul,.summary-text ol{margin:0 0 14px 20px;padding:0}.summary-text li{margin:0 0 6px}.summary-text code{font-family:'JetBrains Mono','Inter',monospace;font-size:.92em;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:1px 5px;color:var(--text)}
+.runbook-bar{display:flex;gap:12px;align-items:flex-start;background:var(--green-bg);border:1px solid var(--green-border);border-radius:8px;padding:12px 14px;margin-top:12px}.rb-dot{width:20px;height:20px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}.rb-dot svg{width:10px;height:10px;stroke:#fff;stroke-width:2.5;fill:none;stroke-linecap:round}.rb-text{font-size:12px;color:var(--green);line-height:1.45}.rb-text strong{font-weight:600}
+.precedent-item{padding:10px 0;border-bottom:1px solid var(--border)}.precedent-item:last-child{border-bottom:none}.precedent-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px}.precedent-id{font-family:'JetBrains Mono','Inter',monospace;font-size:10px;color:var(--text4)}.precedent-resolution{font-size:12px;color:var(--text2);line-height:1.45}.precedent-meta{font-size:10px;color:var(--text4);margin-top:4px}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}.notif-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}.notif-row:last-child{border-bottom:none}.nd{width:6px;height:6px;border-radius:50%;flex-shrink:0}.nd.ok{background:var(--green)}.nd.pending{background:var(--amber)}.nk{color:var(--text3);min-width:96px}.nv{color:var(--text);font-weight:500}
+.hidden{display:none !important}.empty-state{padding:28px;border:1px dashed var(--border2);border-radius:12px;text-align:center;background:var(--bg)}.empty-state h3{font-family:'Syne',sans-serif;color:var(--text);font-size:18px;margin-bottom:6px}.empty-state p{color:var(--text4)}
+.dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.dash-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)}.dash-sub{font-size:12px;color:var(--text4);margin-top:2px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.met{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.met::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:12px 12px 0 0}.met.m-red::before{background:var(--red)}.met.m-amber::before{background:var(--amber)}.met.m-green::before{background:var(--green)}.met.m-blue::before{background:var(--accent)}
+.met-label{font-size:10px;color:var(--text4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}.met-val{font-family:'JetBrains Mono','Inter',monospace;font-size:28px;font-weight:700;font-style:normal;font-variant-numeric:tabular-nums lining-nums;color:var(--text);line-height:1}.met-sub{font-size:11px;margin-top:6px}.met-sub.danger{color:var(--red)}.met-sub.ok{color:var(--green)}.met-sub.muted{color:var(--text4)}.met-sub.blue{color:var(--accent)}
+.met-search{display:flex;flex-direction:column;gap:10px}.report-search-wrap{margin:-2px 0 14px}.report-search{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);font:500 12px 'JetBrains Mono','Inter',monospace;outline:none;transition:border-color .12s,box-shadow .12s}.report-search::placeholder{color:var(--text4)}.report-search:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,139,245,.12)}
+.resolve-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(6,8,15,.72);backdrop-filter:blur(8px);z-index:40}.resolve-modal.show{display:flex}.resolve-dialog{width:min(100%,520px);background:linear-gradient(180deg,rgba(19,19,27,.98),rgba(15,15,22,.98));border:1px solid var(--border2);border-radius:20px;box-shadow:0 24px 80px rgba(0,0,0,.45);padding:22px 22px 18px}.resolve-kicker{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text4);margin-bottom:10px}.resolve-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px}.resolve-copy{font-size:13px;line-height:1.6;color:var(--text3);margin-bottom:16px}.resolve-field label{display:block;font-size:11px;color:var(--text4);margin-bottom:8px}.resolve-textarea{width:100%;min-height:104px;resize:vertical;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:12px 13px;color:var(--text);font:400 13px 'Inter',sans-serif;outline:none;transition:border-color .12s,box-shadow .12s}.resolve-textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(76,139,245,.12)}.resolve-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.resolve-actions .btn-secondary,.resolve-actions .btn-submit{width:auto;margin-top:0;padding:11px 16px}.resolve-actions .btn-submit{min-width:142px}.resolve-note{font-size:11px;color:var(--text4);margin-top:10px}
+.filters-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}.filters{display:flex;gap:6px;flex-wrap:wrap}.sort-controls{display:flex;gap:6px;flex-wrap:wrap}.chip{font-size:11px;padding:5px 14px;border-radius:99px;border:1px solid var(--border);background:var(--bg);color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;transition:all .12s}.chip:hover{border-color:var(--border2);color:var(--text2)}.chip.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+.inc-list{display:flex;flex-direction:column;gap:8px}.inc{background:var(--bg);border:1px solid var(--border);border-radius:12px;display:flex;align-items:center;cursor:pointer;overflow:hidden;transition:background .22s,border-color .22s,box-shadow .15s}.inc:hover{border-color:var(--border2);box-shadow:0 2px 12px var(--shadow)}
+.inc-bar{width:4px;align-self:stretch;flex-shrink:0}.inc-bar.critical{background:var(--red)}.inc-bar.high{background:var(--amber)}.inc-bar.medium{background:var(--accent)}.inc-bar.low{background:var(--green)}.inc-bar.dup{background:var(--violet)}
+.inc-body{flex:1;padding:13px 16px;min-width:0}.inc-title{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inc-sub{font-size:11px;color:var(--text4);margin-top:3px}.inc-right{padding:13px 16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+.tag{font-size:10px;padding:3px 10px;border-radius:99px;font-weight:500;white-space:nowrap}.tag-team{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}.tag-analyzing{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}.tag-done{background:var(--accent-bg);color:var(--accent);border:1px solid var(--accent-border)}.tag-waiting{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}.tag-dup{background:var(--violet-bg);color:var(--violet);border:1px solid var(--violet-border)}
+.res-btn{font-size:10px;padding:4px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;font-family:'Inter',sans-serif;transition:all .12s}.res-btn:hover{background:var(--bg3);color:var(--text2)}.dup-ref{font-size:10px;color:var(--violet);text-decoration:none;cursor:pointer}.dup-ref:hover{color:#c48dff;text-decoration:underline}.view-link{font-size:10px;color:var(--text4);letter-spacing:.04em;text-transform:uppercase}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.screen.active>*{animation:fadeUp .2s ease both}.screen.active>*:nth-child(2){animation-delay:.04s}.screen.active>*:nth-child(3){animation-delay:.08s}.screen.active>*:nth-child(4){animation-delay:.12s}.screen.active>*:nth-child(5){animation-delay:.16s}
+@media (max-width:900px){.metrics,.analysis-grid,.bottom-grid,.row2,.sev-grid,.page-grid{grid-template-columns:1fr}.topbar{padding:0 16px}.page{padding:20px}.nav-center{display:none}.result-hero{flex-direction:column;gap:12px}.inc{flex-direction:column;align-items:stretch}.inc-right{align-items:flex-start;padding-top:0}.topbar-right{gap:10px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="3.5"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2"/></svg>
+    </div>
+    <span class="brand-name">SRE Agent</span>
+    <div class="brand-sep"></div>
+    <span class="brand-by">Cognition by Design</span>
+  </div>
+  <div class="nav-center">
+    <button class="nav-btn active" data-screen="reports" onclick="goMain('reports');goSub('new')">New report</button>
+    <button class="nav-btn" data-screen="dashboard" onclick="goMain('dashboard')">Reports</button>
+  </div>
+  <div class="topbar-right">
+    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <span class="toggle-icon" id="toggle-icon">☀️</span>
+      <div class="toggle-track"><div class="toggle-knob"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="screen active" id="s-reports">
+  <div class="page">
+    <div class="sub-tabs">
+      <button class="sub-tab active" data-sub="new" onclick="goSub('new')">New report</button>
+      <button class="sub-tab" data-sub="status" onclick="goSub('status')">View analysis</button>
+    </div>
+
+    <div id="global-banner" class="banner"></div>
+
+    <div class="sub-screen active" id="sub-new">
+      <div class="page-grid" style="display:grid;grid-template-columns:1fr 296px;gap:16px;align-items:start">
+        <div>
+          <div class="card">
+            <div class="card-title">Report an issue</div>
+            <div class="field">
+              <label>Your name and email — we will notify you when it is resolved</label>
+              <div class="row2">
+                <input id="reporter-name" placeholder="Your name" />
+                <input id="reporter-email" type="email" placeholder="you@company.com" />
+              </div>
+            </div>
+            <div class="field">
+              <label>What is happening?</label>
+              <textarea id="report-text" placeholder="Describe the issue with enough detail for the agent to analyze it."></textarea>
+            </div>
+            <div class="field">
+              <label>Attach evidence <span style="font-weight:400;color:var(--text4)">— image or log (optional)</span></label>
+              <input id="file-upload" type="file" accept=".png,.jpg,.jpeg,.log,.txt" class="hidden" />
+              <div class="upload-zone" id="upload-zone">
+                <div class="upload-icon">
+                  <svg viewBox="0 0 16 16"><path d="M8 11V3M5 6l3-3 3 3"/><path d="M3 13h10"/></svg>
+                </div>
+                <p>Drag your file here or click to select</p>
+                <span>PNG · JPG · .log · max 20 MB</span>
+                <div id="file-name"></div>
+              </div>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>How urgent does it seem? <span style="font-weight:400;color:var(--text4)">— the system will verify it</span></label>
+              <div class="sev-grid">
+                <div class="sev-opt s-urgent" data-severity="Urgent"><div class="so-name">Urgent</div><div class="so-desc">Everything is down</div></div>
+                <div class="sev-opt s-important" data-severity="Important"><div class="so-name">Important</div><div class="so-desc">Something critical is failing</div></div>
+                <div class="sev-opt s-medium active" data-severity="Moderate"><div class="so-name">Moderate</div><div class="so-desc">It works, but poorly</div></div>
+                <div class="sev-opt s-low" data-severity="Minor"><div class="so-name">Minor</div><div class="so-desc">Small or cosmetic issue</div></div>
+              </div>
+            </div>
+            <button class="btn-submit" id="submit-btn" onclick="submitIncident()">Send report to the agent →</button>
+            <div class="submit-progress" id="submit-progress">
+              <div class="submit-progress-head">
+                <div class="submit-spinner"></div>
+                <div>
+                  <div class="submit-progress-title" id="submit-progress-title">Sending report to the agent</div>
+                  <div class="submit-progress-copy" id="submit-progress-copy">We are validating the report and preparing the analysis pipeline.</div>
+                </div>
+              </div>
+              <div class="submit-progress-bar">
+                <div class="submit-progress-fill" id="submit-progress-fill"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="sidebar-card" id="submit-guide-card">
+            <div class="sidebar-title">What happens after you submit</div>
+            <div class="ps"><div class="ps-n">1</div><div class="ps-txt"><strong>We understand the problem</strong> — we analyze your description and identify which part of the store is affected and how many users are impacted.</div></div>
+            <div class="ps"><div class="ps-n">2</div><div class="ps-txt"><strong>We search for the real cause</strong> — we inspect the codebase and propose explanations, each backed by concrete evidence.</div></div>
+            <div class="ps"><div class="ps-n">3</div><div class="ps-txt"><strong>We verify before reporting</strong> — we only include causes that actually exist in the code. Anything without evidence is discarded.</div></div>
+            <div class="ps"><div class="ps-n">4</div><div class="ps-txt"><strong>We notify the team</strong> with all the context needed to act, and we notify you once it is resolved.</div></div>
+            <div class="dedup-note">If someone already reported the same issue, we automatically merge the reports so the team does not work on duplicates.</div>
+          </div>
+          <div class="sidebar-card submit-status-card" id="submit-status-card">
+            <div class="sidebar-title">Processing report</div>
+            <div class="submit-status-meta" id="submit-status-meta">Preparing incident...</div>
+            <div class="submit-status-copy" id="submit-status-copy">We are registering your report and starting the incident workflow.</div>
+            <div class="submit-status-list" id="submit-status-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-screen" id="sub-status">
+      <div id="empty-status" class="empty-state">
+        <h3>No analysis loaded yet</h3>
+        <p>Submit a report or open one from Reports to view the triage result.</p>
+      </div>
+
+      <div id="status-content" class="hidden">
+        <div class="result-hero" id="status-hero">
+          <div>
+            <div class="rh-id" id="hero-meta"></div>
+            <div class="rh-title" id="hero-title"></div>
+            <div class="rh-time" id="hero-reporter"></div>
+          </div>
+          <span class="sev-badge medium" id="hero-severity">Moderate</span>
+        </div>
+
+        <div class="progress-wrap" id="tracker-wrap">
+          <div class="progress-title">Analysis status</div>
+          <div class="steps" id="tracker-steps"></div>
+          <div class="progress-note" id="tracker-note"></div>
+        </div>
+
+        <div id="duplicate-banner" class="runbook-bar hidden" style="background:var(--violet-bg);border-color:var(--violet-border)">
+          <div class="rb-dot" style="background:var(--violet)">
+            <svg viewBox="0 0 10 10"><path d="M2 5h6"/><path d="M5 2v6"/></svg>
+          </div>
+          <div class="rb-text" style="color:var(--violet)">
+            This report is very similar to an existing one and was automatically merged.
+            The team is already working on the original report.
+          </div>
+        </div>
+
+        <div class="bottom-grid" id="actions-section">
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Created ticket</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Number</span><span class="nv" id="ticket-id">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Assigned to</span><span class="nv" id="ticket-team">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Priority</span><span class="nv" id="ticket-priority">-</span></div>
+            <button class="btn-secondary hidden" id="ticket-link-btn" style="margin-top:12px" onclick="openTicket()">Open ticket</button>
+          </div>
+          <div class="card card-sm" style="margin-bottom:0">
+            <div class="card-title">Notifications</div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Technical team</span><span class="nv" id="notify-team">Pending</span></div>
+            <div class="notif-row"><span class="nd pending" id="reporter-dot"></span><span class="nk">Reporter</span><span class="nv" id="notify-reporter">On resolution</span></div>
+            <div class="notif-row hidden" id="notify-channel-row"><span class="nd ok"></span><span class="nk">Channel</span><span class="nv" id="notify-channel">-</span></div>
+            <div class="notif-row"><span class="nd ok"></span><span class="nk">Estimated time</span><span class="nv" id="eta-value">No estimate</span></div>
+          </div>
+        </div>
+
+        <div class="summary-wrap" id="summary-section">
+          <div class="card-title" style="margin-bottom:12px">Analysis summary</div>
+          <div class="summary-text" id="summary-text"></div>
+          <div class="runbook-bar hidden" id="runbook-bar">
+            <div class="rb-dot"><svg viewBox="0 0 10 10"><path d="M2 2h6v6H2z"/><path d="M3.5 4h3M3.5 6h2"/></svg></div>
+            <div class="rb-text" id="runbook-text"></div>
+          </div>
+        </div>
+
+        <div class="summary-wrap hidden" id="blast-section">
+          <div class="card-title" style="margin-bottom:12px">Affected services</div>
+          <div class="summary-text" id="blast-text"></div>
+        </div>
+
+        <div class="analysis-grid" id="analysis-grid">
+          <div class="analysis-card">
+            <div class="ac-header">
+              <span class="ac-badge diag">Diagnosis</span>
+              <span class="ac-title">What did we find?</span>
+            </div>
+            <div class="info-row"><span class="ir-k">Affected services</span><span class="ir-v" id="diag-service">-</span></div>
+            <div class="info-row"><span class="ir-k">Impact</span><span class="ir-v" id="diag-impact">-</span></div>
+            <div class="info-row" id="diag-users-row"><span class="ir-k">Users affected</span><span class="ir-v" id="diag-users">-</span></div>
+            <div class="info-row"><span class="ir-k">Failure timing</span><span class="ir-v" id="diag-created">-</span></div>
+            <div class="info-row"><span class="ir-k">Computed urgency</span><span class="ir-v" id="diag-severity">-</span></div>
+            <div class="info-row"><span class="ir-k">Causes found</span><span class="ir-v" id="diag-cause-count">-</span></div>
+            <div class="info-row" id="diag-risk-row"><span class="ir-k">Services at risk</span><span class="ir-v" id="diag-blast">-</span></div>
+          </div>
+          <div class="analysis-card">
+            <div class="ac-header">
+              <span class="ac-badge verif">Verified causes</span>
+              <span class="ac-title">What is most likely failing?</span>
+            </div>
+            <div id="causes-list"></div>
+            <div class="causes-footer" id="causes-footer">
+              <div class="causes-page" id="causes-page">1 / 1</div>
+              <div class="causes-nav">
+                <button id="causes-prev" onclick="changeCausePage(-1)">Previous</button>
+                <button id="causes-next" onclick="changeCausePage(1)">Next</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-wrap hidden" id="precedents-section">
+          <div class="card-title" style="margin-bottom:12px">Historical precedents</div>
+          <div id="precedents-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="s-dashboard">
+  <div class="page">
+    <div class="dash-header">
+      <div>
+        <div class="dash-title">Reports</div>
+        <div class="dash-sub" id="dashboard-subtitle">Updated · -- · eShop Production</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn-secondary" style="width:auto;margin-top:0;padding:10px 14px" onclick="loadDashboard(true)">Refresh</button>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="met m-red"><div class="met-label">Open issues</div><div class="met-val" id="metric-open">0</div><div class="met-sub danger" id="metric-open-sub">0 urgent</div></div>
+      <div class="met m-amber"><div class="met-label">Analyzed today</div><div class="met-val" id="metric-today">0</div><div class="met-sub ok">processed reports</div></div>
+      <div class="met m-green"><div class="met-label">Resolved reports</div><div class="met-val" id="metric-resolved">0</div><div class="met-sub muted">closed incidents</div></div>
+      <div class="met m-blue"><div class="met-label">Detected duplicates</div><div class="met-val" id="metric-dup">0</div><div class="met-sub blue">merged reports</div></div>
+    </div>
+    <div class="filters-row">
+      <div class="filters">
+        <span class="chip active" data-filter="all" onclick="setFilter('all')">All</span>
+        <span class="chip" data-filter="critical" onclick="setFilter('critical')">Urgent</span>
+        <span class="chip" data-filter="resolvable" onclick="setFilter('resolvable')">Ready to resolve</span>
+        <span class="chip" data-filter="resolved" onclick="setFilter('resolved')">Resolved</span>
+      </div>
+      <div class="sort-controls">
+        <span class="chip active" data-sort="newest" onclick="setSortOrder('newest')">Newest</span>
+        <span class="chip" data-sort="oldest" onclick="setSortOrder('oldest')">Oldest</span>
+      </div>
+    </div>
+    <div class="report-search-wrap">
+      <input id="incident-search" class="report-search" type="text" placeholder="Search by incident id" oninput="setIncidentSearch(this.value)" />
+    </div>
+    <div id="dashboard-banner" class="banner"></div>
+    <div class="inc-list" id="incident-list"></div>
+  </div>
+</div>
+<div class="resolve-modal" id="resolve-modal" onclick="dismissResolveModal(event)">
+  <div class="resolve-dialog" onclick="event.stopPropagation()">
+    <div class="resolve-kicker">Resolve report</div>
+    <div class="resolve-title">Mark this incident as resolved</div>
+    <div class="resolve-copy">Add an optional resolution note for the incident timeline. This will be saved with the report before it moves to the resolved state.</div>
+    <div class="resolve-field">
+      <label for="resolve-notes">Resolution notes</label>
+      <textarea id="resolve-notes" class="resolve-textarea" placeholder="Example: Added timeout and retry policy for Identity.API sign-in requests."></textarea>
+    </div>
+    <div class="resolve-note" id="resolve-target">Incident</div>
+    <div class="resolve-actions">
+      <button class="btn-secondary" onclick="closeResolveModal()">Cancel</button>
+      <button class="btn-submit" id="resolve-confirm-btn" onclick="confirmResolveIncident()">Mark as resolved</button>
+    </div>
+  </div>
+</div>
+<script>
+const TRACKER_STEPS=["Report<br>received","Code<br>analyzed","Causes<br>verified","Ticket<br>created","Team<br>notified","Issue<br>resolved"];
+const STATUS_STEP_COUNT={RECEIVED:1,TRIAGING:2,TRIAGED:3,TICKET_CREATED:4,TEAM_NOTIFIED:5,REPORTER_NOTIFIED:6};
+const TRACKER_STATUS_MESSAGES={RECEIVED:"We registered the report and queued the pipeline.",TRIAGING:"We are analyzing the report and grounding likely failure paths in the codebase.",TRIAGED:"We verified the likely causes and are preparing the action package.",TICKET_CREATED:"A ticket was created and is being routed with the current evidence.",TEAM_NOTIFIED:"The technical team already has the context needed to act.",REPORTER_NOTIFIED:"The incident is resolved and the reporter was already notified.",RESOLVED:"The incident is resolved.",DUPLICATE:"This report was merged with an existing incident to avoid duplicate work."};
+const SUBMIT_STEPS=[{status:"RECEIVED",label:"Report received",hint:"The incident id is reserved and the workflow is starting."},{status:"TRIAGING",label:"Code analyzed",hint:"The agent is inspecting the report and checking the codebase."},{status:"TRIAGED",label:"Causes verified",hint:"Only grounded findings move forward."},{status:"TICKET_CREATED",label:"Ticket created",hint:"Ownership and routing are being attached."},{status:"TEAM_NOTIFIED",label:"Team notified",hint:"The response package is ready for action."}];
+const state={currentMain:"reports",currentSub:"new",currentFilter:"all",currentSort:"newest",selectedSeverity:"Moderate",lastIncident:null,incidents:[],submitProgressTimer:null,incidentPollTimer:null,causePage:0,incidentSearch:"",resolvingIncidentId:"",pendingIncidentId:""};
+function $(id){return document.getElementById(id)}
+function showBanner(message,type="info",target="global-banner"){const banner=$(target);banner.textContent=message;banner.className=`banner show ${type}`}
+function hideBanner(target="global-banner"){const banner=$(target);banner.className="banner";banner.textContent=""}
+function normalizeIncident(incident){const safe=incident&&typeof incident==="object"?incident:{};const ticket=safe.ticket&&typeof safe.ticket==="object"?safe.ticket:{};const notifications=safe.notifications&&typeof safe.notifications==="object"?safe.notifications:{};const historical=safe.historical_context&&typeof safe.historical_context==="object"?safe.historical_context:{};return{...safe,incident_id:safe.incident_id||safe.id||"",status:safe.status||"RECEIVED",triage_summary:safe.triage_summary||"",final_severity:safe.final_severity||"",verified_root_causes:Array.isArray(safe.verified_root_causes)?safe.verified_root_causes:[],suggested_runbooks:Array.isArray(safe.suggested_runbooks)?safe.suggested_runbooks:(Array.isArray(ticket.suggested_runbooks)?ticket.suggested_runbooks:[]),errors:Array.isArray(safe.errors)?safe.errors:[],duplicate_of:safe.duplicate_of||"",assigned_team:safe.assigned_team||ticket.assigned_team||"",ticket_id:safe.ticket_id||ticket.ticket_id||"",ticket_url:safe.ticket_url||ticket.ticket_url||"",created_at:safe.created_at||safe.updated_at||"",raw_report:safe.raw_report||"",world_model:safe.world_model&&typeof safe.world_model==="object"?safe.world_model:{},entities:safe.entities&&typeof safe.entities==="object"?safe.entities:{},hypotheses:Array.isArray(safe.hypotheses)?safe.hypotheses:[],span_verdicts:Array.isArray(safe.span_verdicts)?safe.span_verdicts:[],notifications,historical_context:historical,ticket,similarity_score:typeof safe.similarity_score==="number"?safe.similarity_score:null}}
+function renderSummaryMarkdown(markdown){const source=String(markdown||"").trim();if(!source)return"<p>No summary is available yet.</p>";const escape=(value)=>String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");const renderInline=(value)=>escape(value).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");const lines=source.split(/\r?\n/);const blocks=[];let paragraph=[];let listType=null;let listItems=[];const flushParagraph=()=>{if(paragraph.length){blocks.push(`<p>${renderInline(paragraph.join(" "))}</p>`);paragraph=[]}};const flushList=()=>{if(listType&&listItems.length){blocks.push(`<${listType}>${listItems.map((item)=>`<li>${renderInline(item)}</li>`).join("")}</${listType}>`);listType=null;listItems=[]}};for(const rawLine of lines){const line=rawLine.trim();if(!line){flushParagraph();flushList();continue}const unorderedMatch=line.match(/^[-*]\s+(.*)$/);const orderedMatch=line.match(/^\d+\.\s+(.*)$/);if(unorderedMatch){flushParagraph();if(listType!=="ul")flushList(),listType="ul";listItems.push(unorderedMatch[1]);continue}if(orderedMatch){flushParagraph();if(listType!=="ol")flushList(),listType="ol";listItems.push(orderedMatch[1]);continue}flushList();paragraph.push(line)}flushParagraph();flushList();return blocks.join("")||`<p>${renderInline(source)}</p>`}
+function goMain(screen){state.currentMain=screen;localStorage.setItem("current_main_screen",screen);document.querySelectorAll(".screen").forEach((node)=>node.classList.remove("active"));document.querySelectorAll(".nav-btn").forEach((node)=>node.classList.remove("active"));$(`s-${screen}`).classList.add("active");const activeNav=document.querySelector(`.nav-btn[data-screen="${screen}"]`)||document.querySelector('.nav-btn[data-screen="dashboard"]');if(activeNav)activeNav.classList.add("active");if(screen==="dashboard"){loadDashboard()}window.scrollTo(0,0)}
+function goSub(sub){state.currentSub=sub;localStorage.setItem("current_sub_screen",sub);document.querySelectorAll(".sub-screen").forEach((node)=>node.classList.remove("active"));document.querySelectorAll(".sub-tab").forEach((node)=>node.classList.remove("active"));$(`sub-${sub}`).classList.add("active");document.querySelector(`.sub-tab[data-sub="${sub}"]`).classList.add("active");if(sub==="status"&&!state.lastIncident){const lastId=localStorage.getItem("last_incident_id");if(lastId){loadIncidentDetails(lastId)}}window.scrollTo(0,0)}
+function toggleTheme(){const html=document.documentElement;const isDark=html.getAttribute("data-theme")==="dark";const next=isDark?"light":"dark";html.setAttribute("data-theme",next);$("toggle-icon").textContent=next==="dark"?"🌙":"☀️";localStorage.setItem("theme",next)}
+function restoreTheme(){const saved=localStorage.getItem("theme");if(saved==="dark"){document.documentElement.setAttribute("data-theme","dark");$("toggle-icon").textContent="🌙"}}
+function initUpload(){const zone=$("upload-zone");const input=$("file-upload");zone.addEventListener("click",()=>input.click());zone.addEventListener("dragover",(event)=>{event.preventDefault();zone.classList.add("drag")});zone.addEventListener("dragleave",()=>zone.classList.remove("drag"));zone.addEventListener("drop",(event)=>{event.preventDefault();zone.classList.remove("drag");if(event.dataTransfer.files.length){input.files=event.dataTransfer.files;updateSelectedFile()}});input.addEventListener("change",updateSelectedFile)}
+function updateSelectedFile(){const file=$("file-upload").files[0];$("file-name").textContent=file?`File ready: ${file.name}`:""}
+function initSeverityPicker(){document.querySelectorAll(".sev-opt").forEach((node)=>{node.addEventListener("click",()=>{document.querySelectorAll(".sev-opt").forEach((item)=>item.classList.remove("active"));node.classList.add("active");state.selectedSeverity=node.dataset.severity})})}
+function sanitizeInput(text){const clean=text.trim();if(clean.length>2000){showBanner("The report is quite long. Consider summarizing it to under 2000 characters.","warn")}return clean}
+function validateForm(){const report=$("report-text").value.trim();const email=$("reporter-email").value.trim();if(report.length<10){showBanner("Please describe the issue in more detail.","error");return false}if(email&&!email.includes("@")){showBanner("The email address does not look valid.","error");return false}hideBanner();return true}
+function buildClientIncidentId(){if(window.crypto?.randomUUID)return window.crypto.randomUUID().replaceAll("-","");return `inc${Date.now().toString(16)}${Math.random().toString(16).slice(2,10)}`}
+function getLiveIncidentStatus(incident){return String(incident?._checkpoint?.status||incident?.status||"RECEIVED").toUpperCase()}
+function stopSubmitPolling(){if(state.incidentPollTimer){window.clearTimeout(state.incidentPollTimer);state.incidentPollTimer=null}}
+function setSubmitTrackerVisible(isVisible){$("submit-guide-card").classList.toggle("hidden",isVisible);$("submit-status-card").classList.toggle("show",isVisible)}
+function renderSubmitTracker(status,incidentId=""){const currentStatus=String(status||"RECEIVED").toUpperCase();const currentIndex=Math.max(SUBMIT_STEPS.findIndex((step)=>step.status===currentStatus),0);$("submit-status-meta").textContent=incidentId?`Incident #${incidentId}`:"Preparing incident...";$("submit-status-copy").textContent=TRACKER_STATUS_MESSAGES[currentStatus]||TRACKER_STATUS_MESSAGES.RECEIVED;const list=$("submit-status-list");list.innerHTML="";SUBMIT_STEPS.forEach((step,index)=>{const item=document.createElement("div");const isDone=index<currentIndex;const isActive=index===currentIndex;item.className=`submit-status-item${isDone?" done":""}${isActive?" active":""}`;item.innerHTML=`<div class="submit-status-dot">${isDone?"✓":index+1}</div><div class="submit-status-body"><div class="submit-status-label">${step.label}</div><div class="submit-status-hint">${step.hint}</div></div>`;list.appendChild(item)})}
+async function pollIncidentProgress(incidentId){try{const response=await fetch(`/incident/${incidentId}`);if(response.status===404){state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),1500);return null}const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be loaded.");const incident=normalizeIncident(data);renderSubmitTracker(getLiveIncidentStatus(incident),incidentId);state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),2000);return incident}catch(_error){state.incidentPollTimer=window.setTimeout(()=>pollIncidentProgress(incidentId),2500);return null}}
+function resetSubmitTracker(){stopSubmitPolling();state.pendingIncidentId="";setSubmitTrackerVisible(false);renderSubmitTracker("RECEIVED","")}
+function setSubmitProgress(isSubmitting){const panel=$("submit-progress");const fill=$("submit-progress-fill");const title=$("submit-progress-title");const copy=$("submit-progress-copy");if(!panel||!fill||!title||!copy)return;if(state.submitProgressTimer){window.clearInterval(state.submitProgressTimer);state.submitProgressTimer=null}if(!isSubmitting){panel.classList.remove("show");fill.style.width="22%";title.textContent="Sending report to the agent";copy.textContent="We are validating the report and preparing the analysis pipeline.";return}panel.classList.add("show");title.textContent="Analyzing report";copy.textContent="The agent is extracting signals, checking the codebase, and preparing your analysis.";const stops=[28,41,57,69,78,86,92];let index=0;fill.style.width=`${stops[index]}%`;state.submitProgressTimer=window.setInterval(()=>{index=Math.min(index+1,stops.length-1);fill.style.width=`${stops[index]}%`;if(index===stops.length-1&&state.submitProgressTimer){window.clearInterval(state.submitProgressTimer);state.submitProgressTimer=null}},650)}
+async function submitIncident(){if(!validateForm())return;const reportText=sanitizeInput($("report-text").value);const perceived=state.selectedSeverity?`[Perceived severity: ${state.selectedSeverity}] `:"";const reporterName=$("reporter-name").value.trim();const reporterEmail=$("reporter-email").value.trim();const incidentId=buildClientIncidentId();const form=new FormData();form.append("incident_id",incidentId);form.append("reporter_name",reporterName);form.append("reporter_email",reporterEmail);form.append("report",`${perceived}${reportText}`);const file=$("file-upload").files[0];if(file)form.append("image",file);const button=$("submit-btn");button.disabled=true;button.textContent="Processing...";hideBanner();state.pendingIncidentId=incidentId;setSubmitTrackerVisible(true);renderSubmitTracker("RECEIVED",incidentId);stopSubmitPolling();const responsePromise=fetch("/incident",{method:"POST",body:form});pollIncidentProgress(incidentId);try{const response=await responsePromise;const data=await response.json();if(!response.ok){throw new Error(data.detail||"The incident could not be processed.")}stopSubmitPolling();localStorage.setItem("last_incident_id",data.incident_id);const incident=normalizeIncident({...data,raw_report:[reporterName||reporterEmail?`Reporter: ${reporterName} (${reporterEmail})`:"",`${perceived}${reportText}`].filter(Boolean).join("\n\n"),created_at:new Date().toISOString(),_reporter_name:reporterName,_reporter_email:reporterEmail});state.lastIncident=incident;renderIncident(incident);await loadDashboard(true);goSub("status")}catch(error){showBanner(error.message||"An error occurred while sending the report.","error")}finally{resetSubmitTracker();button.disabled=false;button.textContent="Send report to the agent →"}}
+async function loadIncidentDetails(incidentId){if(!incidentId)return;try{const response=await fetch(`/incident/${incidentId}`);const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be loaded.");state.lastIncident=normalizeIncident(data);renderIncident(state.lastIncident)}catch(error){showBanner(error.message||"The analysis could not be loaded.","error")}}
+function renderIncident(incident){if(!incident)return;$("empty-status").classList.add("hidden");$("status-content").classList.remove("hidden");const severity=mapSeverity(incident.final_severity||"MEDIUM");$("hero-meta").textContent=`Report #${incident.incident_id||"N/A"} · ${formatStatusLabel(incident.status||"RECEIVED")} · ${formatAbsoluteDate(incident.created_at)}`;$("hero-title").textContent=buildIncidentTitle(incident);$("hero-reporter").textContent=incident.duplicate_of?`Automatically merged with ${incident.duplicate_of}`:`Reported by ${incident._reporter_name||extractReporterName(incident.raw_report)||"User"} · ${incident._reporter_email||extractReporterEmail(incident.raw_report)||"no email"}`;const badge=$("hero-severity");badge.textContent=severity.label;badge.className=`sev-badge ${severity.className}`;$("diag-service").textContent=getAffectedService(incident);$("diag-impact").textContent=getImpactLabel(incident);$("diag-blast").textContent=getBlastRadiusLabel(incident);$("diag-created").textContent=formatRelativeTime(incident.created_at);$("diag-severity").textContent=severity.label;$("diag-severity").style.color=severity.colorVar?`var(${severity.colorVar})`:"";renderTracker(incident.status,incident._reporter_email||extractReporterEmail(incident.raw_report));renderCauses(incident);$("summary-text").innerHTML=renderSummaryMarkdown(incident.triage_summary);renderRunbook(incident.suggested_runbooks||[]);renderTicket(incident);const isDuplicate=Boolean(incident.duplicate_of);$("duplicate-banner").classList.toggle("hidden",!isDuplicate);$("tracker-wrap").classList.toggle("hidden",isDuplicate);$("analysis-grid").classList.toggle("hidden",isDuplicate)}
+function buildIncidentTitle(incident){if(incident.duplicate_of)return"Duplicate report detected and merged";const raw=incident.raw_report||"";const clean=raw.replace(/^Reporter:.*?\n\n/s,"").trim();return clean?clean.slice(0,85):"Incident analysis"}
+function renderTracker(status,reporterEmail){const completed=STATUS_STEP_COUNT[status]||1;const container=$("tracker-steps");container.innerHTML="";TRACKER_STEPS.forEach((label,index)=>{const done=index<completed;const number=index+1;const item=document.createElement("div");item.className=`step-item${done?" done":""}`;item.innerHTML=`<div class="step-circle">${done?"✓":number}</div><div class="step-label">${label}</div>`;container.appendChild(item)});$("tracker-note").innerHTML=reporterEmail?`The technical team is already working on it. We will notify <strong style="color:var(--text2)">${escapeHtml(reporterEmail)}</strong> when it is resolved.`:"The technical team already has the analysis result and can act on this context."}
+function renderCauses(incident){const list=$("causes-list");list.innerHTML="";const verified=incident.verified_root_causes||[];if(verified.length){verified.forEach((cause)=>{list.appendChild(buildCauseItem("confirmed","Confirmed in code",cause,"Evidence was found directly in the code"))})}else{list.appendChild(buildCauseItem("possible","Unconfirmed","There are no verified root causes in the current result yet.","The system completed the flow with partial evidence or without hypotheses"))}(incident.errors||[]).forEach((error)=>{list.appendChild(buildCauseItem("discarded","Pipeline issue",error,"The backend reported a warning or error during analysis"))})}
+function buildCauseItem(kind,tag,text,note){const item=document.createElement("div");item.className="cause-item";item.innerHTML=`<div class="cause-tags"><span class="ctag ${kind}">${tag}</span></div><div class="cause-text">${escapeHtml(text)}</div><div class="cause-note">${escapeHtml(note)}</div>`;return item}
+function renderRunbook(runbooks){const bar=$("runbook-bar");if(!runbooks.length){bar.classList.add("hidden");return}const runbook=runbooks[0];$("runbook-text").innerHTML=`<strong>Suggested resolution guide</strong> — ${escapeHtml(runbook.title||runbook.runbook_id||"Suggested runbook")}. Escalation: ${escapeHtml(runbook.escalation_path||"Not defined")}. Estimated time: ${escapeHtml(runbook.estimated_resolution_time||"Not defined")}.`;bar.classList.remove("hidden")}
+function renderTicket(incident){$("ticket-id").textContent=incident.ticket_id||"Pending";$("ticket-team").textContent=incident.assigned_team||"Unassigned";$("ticket-priority").textContent=mapSeverity(incident.final_severity||"MEDIUM").label;$("notify-team").textContent=["TEAM_NOTIFIED","REPORTER_NOTIFIED","RESOLVED"].includes(incident.status)?"Email + Slack ✓":"Pending";const reporterResolved=incident.status==="REPORTER_NOTIFIED";$("notify-reporter").textContent=reporterResolved?"Notified ✓":"On resolution";$("reporter-dot").className=`nd ${reporterResolved?"ok":"pending"}`;const runbook=(incident.suggested_runbooks||[])[0];$("eta-value").textContent=runbook?.estimated_resolution_time||"No estimate";$("ticket-link-btn").classList.toggle("hidden",!incident.ticket_url)}
+function shortIncidentId(value){return String(value||"")}
+function getPreferredReporterEmail(incident){return incident?.notifications?.reporter_email||extractReporterEmail(incident?.raw_report)||String(incident?.notifications?.reporter_notification_channel||"").replace(/^email:/i,"")}
+function inferUsersAffected(incident){const report=String(incident?.raw_report||"").toLowerCase();if(report.includes("authenticated"))return"Authenticated users";if(report.includes("all users"))return"All users";if(report.includes("new users"))return"New users";if(report.includes("production"))return"Production traffic";return""}
+function getFailureMoment(incident){return incident?.entities?.timestamp_reported||extractFailureMomentFromReport(incident?.raw_report)||"Not determined"}
+function extractFailureMomentFromReport(rawReport){const text=String(rawReport||"").toLowerCase();if(text.includes("after the latest deployment"))return"After the latest deployment";if(text.includes("after the last deployment"))return"After the last deployment";if(text.includes("after this morning"))return"After this morning's deployment";const match=text.match(/started\s+\d+\s+minutes?\s+ago/);return match?match[0]:"Not determined"}
+function getBlastServices(incident){const radius=incident?.world_model?.blast_radius;return Array.isArray(radius)?radius.filter(Boolean):[]}
+function severityTagClass(severity){const key=String(severity||"MEDIUM").toUpperCase();if(key==="CRITICAL")return"confirmed";if(key==="HIGH")return"possible";return"possible"}
+function truncateText(value,maxLength){const text=String(value||"").trim();return text.length>maxLength?`${text.slice(0,maxLength-3)}...`:text}
+function formatTicketPriority(priority){const value=String(priority||"").trim();if(value.startsWith("P1"))return"P1 - Urgent";if(value.startsWith("P2"))return"P2 - Important";if(value.startsWith("P3"))return"P3 - Moderate";if(value.startsWith("P4"))return"P4 - Minor";return mapSeverity(priority||"MEDIUM").label}
+function estimateResolutionTime(incident){const runbookEta=(Array.isArray(incident?.ticket?.suggested_runbooks)&&incident.ticket.suggested_runbooks[0]?.estimated_resolution_time)||incident?.suggested_runbooks?.[0]?.estimated_resolution_time;if(runbookEta)return runbookEta;const mttrs=getRelevantPrecedents(incident).map((item)=>item?.mttr_minutes).filter((value)=>typeof value==="number"&&value>0);if(!mttrs.length)return"No estimate";const min=Math.min(...mttrs);const max=Math.max(...mttrs);return min===max?`${min} min (based on similar incidents)`:`${min}-${max} min (based on similar incidents)`}
+function getRelevantPrecedents(incident){const items=Array.isArray(incident?.historical_context?.similar_past_incidents)?incident.historical_context.similar_past_incidents:[];const filtered=items.filter((item)=>String(item?.resolution_notes||"").trim()!=="");const deduped=[];filtered.forEach((item)=>{const key=item?.source_id||item?.id||"";if(!key)return;const existing=deduped.find((current)=>current.source_id===key);if(!existing){deduped.push(item);return}if(String(item.chunk_role||"").toLowerCase()==="resolution"){const index=deduped.indexOf(existing);deduped[index]=item}});return deduped.slice(0,3)}
+function hasPrecedents(incident){return getRelevantPrecedents(incident).length>0}
+function buildCauseEntries(incident){const hypotheses=Array.isArray(incident?.hypotheses)?incident.hypotheses:[];const verdicts=Array.isArray(incident?.span_verdicts)?incident.span_verdicts:[];const entries=hypotheses.map((hypothesis)=>{const verdict=verdicts.find((item)=>item.hypothesis_id===hypothesis.hypothesis_id);if(!verdict)return null;let label="Possible";let kind="possible";let rank=1;if(verdict.verdict==="HALLUCINATION"){label="Discarded";kind="discarded";rank=2}else if(verdict.verdict==="VERIFIED"&&Number(verdict.similarity_score||0)>=0.85){label="Confirmed in code";kind="confirmed";rank=0}const fileName=(verdict.matched_file||hypothesis.suspected_file||"").split(/[\\\\/]/).pop();const line=verdict.matched_line?` - line ${verdict.matched_line}`:"";return{kind,label,rank,score:Number(verdict.similarity_score||0),description:hypothesis.description||"No description available.",fileLabel:fileName?`${fileName}${line}`:"",note:kind==="discarded"?"The cited span could not be validated against the indexed code.":kind==="confirmed"?"The cited span was verified against the indexed repository.":"There is partial evidence in the indexed repository.",recurring:/recurring pattern/i.test(hypothesis.description||"")}}).filter(Boolean).sort((left,right)=>left.rank-right.rank||right.score-left.score);if(entries.length)return entries;return(Array.isArray(incident?.verified_root_causes)?incident.verified_root_causes:[]).map((cause)=>({kind:"confirmed",label:"Confirmed in code",rank:0,score:1,description:cause,fileLabel:"",note:"This cause survived verification in the pipeline.",recurring:/recurring pattern/i.test(cause||"")}))}
+function buildCauseItem(cause){const item=document.createElement("div");item.className="cause-item";const fileMarkup=cause.fileLabel?`<div class="cause-file">${escapeHtml(cause.fileLabel)}</div>`:"";const recurringMarkup=cause.recurring?`<span class="ctag recurring">Recurring pattern</span>`:"";item.innerHTML=`<div class="cause-tags"><span class="ctag ${cause.kind}">${escapeHtml(cause.label)}</span>${recurringMarkup}</div><div class="cause-text">${escapeHtml(cause.description)}</div>${fileMarkup}<div class="cause-note">${escapeHtml(cause.note)}</div>`;return item}
+function changeCausePage(direction){const entries=buildCauseEntries(state.lastIncident||{});const totalPages=Math.max(1,Math.ceil(entries.length/3));state.causePage=Math.max(0,Math.min(totalPages-1,state.causePage+direction));renderCauses(state.lastIncident||{},entries)}
+function renderCauses(_incident,causeEntries){const list=$("causes-list");const footer=$("causes-footer");const pager=$("causes-page");const prev=$("causes-prev");const next=$("causes-next");list.innerHTML="";if(!causeEntries.length){list.appendChild(buildCauseItem({kind:"possible",label:"No verified causes yet",description:"The current result does not include verified or plausible code-level causes.",note:"The pipeline completed with partial evidence.",fileLabel:"",recurring:false}));footer.classList.remove("show");return}const pageSize=3;const totalPages=Math.max(1,Math.ceil(causeEntries.length/pageSize));state.causePage=Math.min(state.causePage,totalPages-1);const start=state.causePage*pageSize;causeEntries.slice(start,start+pageSize).forEach((cause)=>list.appendChild(buildCauseItem(cause)));const showPager=causeEntries.length>pageSize;footer.classList.toggle("show",showPager);pager.textContent=`${state.causePage+1} / ${totalPages}`;prev.disabled=state.causePage===0;next.disabled=state.causePage>=totalPages-1}
+function renderSummary(incident,causeEntries){const summary=String(incident?.triage_summary||"").trim();const service=getAffectedService(incident);if(!summary||summary.startsWith("AUTOMATED TRIAGE:")){$("summary-text").innerHTML=`<p>The system found <strong>${causeEntries.length} code-grounded cause${causeEntries.length===1?"":"s"}</strong> for ${escapeHtml(service)}. The team already has enough context to act on this incident.</p>`;return}$("summary-text").innerHTML=renderSummaryMarkdown(summary)}
+function renderBlastRadius(blastServices){$("blast-text").textContent=blastServices.join(", ")}
+function renderPrecedents(incident){const list=$("precedents-list");list.innerHTML="";getRelevantPrecedents(incident).forEach((item)=>{const row=document.createElement("div");row.className="precedent-item";const meta=[];if(typeof item?.mttr_minutes==="number"&&item.mttr_minutes>0)meta.push(`${item.mttr_minutes} min`);if(Number(item?.similarity||0)>0)meta.push(`${Math.round(Number(item.similarity)*100)}% similar`);row.innerHTML=`<div class="precedent-head"><span class="ctag ${severityTagClass(item?.severity)}">${escapeHtml(mapSeverity(item?.severity||"MEDIUM").label)}</span><span class="precedent-id">${escapeHtml(item?.source_id||"Reference")}</span></div><div class="precedent-resolution">${escapeHtml(truncateText(item?.resolution_notes||"",200))}</div><div class="precedent-meta">${escapeHtml(meta.join(" - "))}</div>`;list.appendChild(row)})}
+function renderTracker(status,reporterEmail,notifications){const completed=STATUS_STEP_COUNT[status]||1;const container=$("tracker-steps");container.innerHTML="";TRACKER_STEPS.forEach((label,index)=>{const done=index<completed;const number=index+1;const item=document.createElement("div");item.className=`step-item${done?" done":""}`;item.innerHTML=`<div class="step-circle">${done?"&#10003;":number}</div><div class="step-label">${label}</div>`;container.appendChild(item)});if(reporterEmail){$("tracker-note").innerHTML=notifications?.reporter_notified?`<strong style="color:var(--text2)">${escapeHtml(reporterEmail)}</strong> has already been notified that the issue is resolved.`:`We will notify <strong style="color:var(--text2)">${escapeHtml(reporterEmail)}</strong> when it is resolved.`;return}$("tracker-note").textContent="The technical team already has the analysis result and can act on this context."}
+function renderRunbook(incident){const ticketRunbooks=Array.isArray(incident?.ticket?.suggested_runbooks)?incident.ticket.suggested_runbooks:[];const stateRunbooks=Array.isArray(incident?.suggested_runbooks)?incident.suggested_runbooks:[];const runbooks=ticketRunbooks.length?ticketRunbooks:stateRunbooks;const bar=$("runbook-bar");if(!runbooks.length){bar.classList.add("hidden");return}const runbook=runbooks[0];const rawTitle=runbook.title||runbook.runbook_id||"Suggested runbook";const cleanTitle=rawTitle.replace(/^RUNBOOK\\s+RB-[^:]+:\\s*/i,"");const relatedService=getAffectedService(incident);const unrelated=relatedService&&cleanTitle&&!String(rawTitle).toLowerCase().includes(String(relatedService).split(".")[0].toLowerCase());$("runbook-text").innerHTML=`<strong>${escapeHtml(runbook.runbook_id||"Runbook")}</strong> - ${escapeHtml(cleanTitle)}. Escalation: ${escapeHtml(runbook.escalation_path||"Not defined")}. Estimated time: ${escapeHtml(runbook.estimated_resolution_time||"Not defined")}.${unrelated?" This guide is for a related service and may still be useful as reference.":""}`;bar.classList.remove("hidden")}
+function renderTicket(incident){const ticket=incident?.ticket&&typeof incident.ticket==="object"?incident.ticket:{};const notifications=incident?.notifications&&typeof incident.notifications==="object"?incident.notifications:{};const ticketId=ticket.ticket_id||incident?.ticket_id||"Pending";const ticketUrl=ticket.ticket_url||incident?.ticket_url||"";$("ticket-id").textContent=ticketId;$("ticket-team").textContent=ticket.assigned_team||incident?.assigned_team||"Unassigned";$("ticket-priority").textContent=formatTicketPriority(ticket.priority||incident?.final_severity);$("notify-team").textContent=notifications.team_notified?"Email + Slack OK":"Pending";$("notify-reporter").textContent=notifications.reporter_notified?"Sent OK":"On resolution";$("reporter-dot").className=`nd ${notifications.reporter_notified?"ok":"pending"}`;$("eta-value").textContent=estimateResolutionTime(incident);const channel=notifications.team_notification_channel||"";$("notify-channel").textContent=channel||"-";$("notify-channel-row").classList.toggle("hidden",!notifications.team_notified||!channel);$("ticket-link-btn").classList.toggle("hidden",!ticketUrl);state.lastIncident={...incident,ticket_url:ticketUrl}}
+function buildIncidentTitle(incident){if(incident?.duplicate_of)return"Duplicate report detected and merged";const raw=incident?.raw_report||"";const clean=raw.replace(/^Reporter:.*?\n\n/s,"").trim();return clean?clean.slice(0,120):"Incident analysis"}
+function renderIncident(incident){if(!incident)return;state.causePage=0;$("empty-status").classList.add("hidden");$("status-content").classList.remove("hidden");const severity=mapSeverity(incident.final_severity||"MEDIUM");const reporterName=incident._reporter_name||extractReporterName(incident.raw_report)||"User";const reporterEmail=getPreferredReporterEmail(incident);const linkedTicket=incident.ticket?.ticket_id||incident.ticket_id||"";const meta=[`Report #${shortIncidentId(incident.incident_id)||"N/A"}`];if(linkedTicket)meta.push(linkedTicket);meta.push(formatRelativeTime(incident.created_at));$("hero-meta").textContent=meta.join(" - ");$("hero-title").textContent=buildIncidentTitle(incident);$("hero-reporter").textContent=incident.duplicate_of?`Automatically merged with #${shortIncidentId(incident.duplicate_of)}`:[reporterName,reporterEmail].filter(Boolean).join(" - ");const badge=$("hero-severity");badge.textContent=incident.duplicate_of?"Duplicate":severity.label;badge.className=`sev-badge ${incident.duplicate_of?"medium":severity.className}`;$("status-hero").style.setProperty("--hero-accent",severity.accent);$("diag-service").textContent=getAffectedService(incident);$("diag-impact").textContent=getImpactLabel(incident);const usersAffected=inferUsersAffected(incident);$("diag-users").textContent=usersAffected||"-";$("diag-users-row").classList.toggle("hidden",!usersAffected);$("diag-created").textContent=getFailureMoment(incident);$("diag-severity").textContent=severity.label;$("diag-severity").style.color=severity.accent;const blastServices=getBlastServices(incident);$("diag-blast").textContent=blastServices.length?blastServices.join(", "):"-";$("diag-risk-row").classList.toggle("hidden",blastServices.length===0);const causeEntries=buildCauseEntries(incident);const verifiedCount=causeEntries.filter((cause)=>cause.kind!=="discarded").length||causeEntries.length;$("diag-cause-count").textContent=`${verifiedCount} found`;renderTracker(incident.status,reporterEmail,incident.notifications||{});renderCauses(incident,causeEntries);renderSummary(incident,causeEntries);renderRunbook(incident);renderBlastRadius(blastServices);renderPrecedents(incident);renderTicket(incident);const isDuplicate=Boolean(incident.duplicate_of);$("duplicate-banner").classList.toggle("hidden",!isDuplicate);$("tracker-wrap").classList.toggle("hidden",isDuplicate);$("analysis-grid").classList.toggle("hidden",isDuplicate);$("summary-section").classList.toggle("hidden",isDuplicate);$("blast-section").classList.toggle("hidden",isDuplicate||blastServices.length===0);$("precedents-section").classList.toggle("hidden",isDuplicate||!hasPrecedents(incident));$("actions-section").classList.toggle("hidden",isDuplicate);if(isDuplicate){const similarity=typeof incident.similarity_score==="number"?` (${Math.round(incident.similarity_score*100)}% similar)`:"";$("duplicate-banner").querySelector(".rb-text").innerHTML=`This report is very similar${similarity} to an existing one. The team is already working on the original report <a href="#" class="dup-ref" onclick="openLinkedIncident(event,'${escapeHtml(incident.duplicate_of)}')">#${escapeHtml(shortIncidentId(incident.duplicate_of))}</a>.`}}
+function openTicket(){if(state.lastIncident?.ticket_url){window.open(state.lastIncident.ticket_url,"_blank","noopener,noreferrer")}}
+async function loadDashboard(showFeedback=false){try{const response=await fetch("/incidents");const incidents=await response.json();if(!response.ok)throw new Error("The dashboard could not be loaded.");state.incidents=Array.isArray(incidents)?incidents.map(normalizeIncident):[];renderDashboard();if(showFeedback)showBanner("Dashboard updated.","info","dashboard-banner");await loadSystemStatus()}catch(error){showBanner(error.message||"The dashboard could not be loaded.","error","dashboard-banner")}}
+function renderDashboard(){$("dashboard-subtitle").textContent=`Updated · ${formatAbsoluteDate(new Date().toISOString())} · eShop Production`;const metrics=calcMetrics(state.incidents);$("metric-open").textContent=String(metrics.open);$("metric-open-sub").textContent=`${metrics.urgent} urgent`; $("metric-today").textContent=String(metrics.today);$("metric-resolved").textContent=String(metrics.resolved);$("metric-dup").textContent=String(metrics.duplicates);if($("incident-search"))$("incident-search").value=state.incidentSearch;renderIncidentList(state.incidents.filter(matchesFilter))}
+function calcMetrics(incidents){const normalized=Array.isArray(incidents)?incidents.map(normalizeIncident):[];const activeStatuses=["RECEIVED","TRIAGING","TRIAGED","TICKET_CREATED","TEAM_NOTIFIED"];const resolvedStatuses=["REPORTER_NOTIFIED","RESOLVED"];const open=normalized.filter((i)=>activeStatuses.includes(i.status)&&!i.duplicate_of).length;const urgent=normalized.filter((i)=>i.final_severity==="CRITICAL"&&activeStatuses.includes(i.status)&&!i.duplicate_of).length;const duplicates=normalized.filter((i)=>Boolean(i.duplicate_of)).length;const today=normalized.filter((i)=>isToday(i.created_at)).length;const resolved=normalized.filter((i)=>resolvedStatuses.includes(i.status)&&!i.duplicate_of).length;return{open,urgent,duplicates,today,resolved}}
+function matchesFilter(incident){const query=String(state.incidentSearch||"").trim().toLowerCase();if(query&&!String(incident.incident_id||"").toLowerCase().includes(query))return false;switch(state.currentFilter){case"critical":return incident.final_severity==="CRITICAL";case"triaging":return["RECEIVED","TRIAGING","TRIAGED"].includes(incident.status)&&!incident.duplicate_of;case"resolvable":return["TEAM_NOTIFIED","TICKET_CREATED"].includes(incident.status);case"resolved":return["REPORTER_NOTIFIED","RESOLVED"].includes(incident.status);default:return true}}
+function setFilter(filter){state.currentFilter=filter;document.querySelectorAll(".chip").forEach((chip)=>chip.classList.remove("active"));document.querySelector(`.chip[data-filter="${filter}"]`).classList.add("active");renderDashboard()}
+function setIncidentSearch(value){state.incidentSearch=String(value||"");renderDashboard()}
+function renderIncidentList(incidents){const list=$("incident-list");list.innerHTML="";if(!incidents.length){list.innerHTML=`<div class="empty-state"><h3>No incidents for this filter</h3><p>New reports will appear here as they come in.</p></div>`;return}incidents.forEach((incident)=>{const item=document.createElement("div");item.className="inc";item.onclick=()=>openIncidentFromDashboard(incident.incident_id);const severityClass=incident.duplicate_of?"dup":barClassForSeverity(incident.final_severity);const tag=buildStatusTag(incident);const resolveButton=["TEAM_NOTIFIED","TICKET_CREATED"].includes(incident.status)&&!incident.duplicate_of?`<button class="res-btn" onclick="event.stopPropagation(); resolveIncident('${incident.incident_id}')">Mark as resolved</button>`:"";const subtitle=incident.duplicate_of?`${formatRelativeTime(incident.created_at)} · ${similarityLabel(incident)}`:`${extractReporterName(incident.raw_report)||"User"} · ${formatRelativeTime(incident.created_at)} · ${getAffectedService(incident)}`;item.innerHTML=`<div class="inc-bar ${severityClass}"></div><div class="inc-body"><div class="inc-title">${escapeHtml(buildIncidentTitle(incident))}</div><div class="inc-sub">${escapeHtml(subtitle)}</div></div><div class="inc-right"><span class="tag ${tag.className}">${escapeHtml(tag.label)}</span>${incident.duplicate_of?`<a href="#" class="dup-ref" onclick="openLinkedIncident(event,'${escapeHtml(incident.duplicate_of)}')">→ Merged with #${escapeHtml(incident.duplicate_of)}</a>`:resolveButton}</div>`;list.appendChild(item)})}
+function buildStatusTag(incident){if(incident.duplicate_of)return{className:"tag-dup",label:"Duplicate report"};switch(incident.status){case"TEAM_NOTIFIED":return{className:"tag-team",label:"Team notified"};case"REPORTER_NOTIFIED":case"RESOLVED":return{className:"tag-done",label:"Resolved"};case"TICKET_CREATED":return{className:"tag-done",label:"Ready to resolve"};case"TRIAGING":case"RECEIVED":return{className:"tag-analyzing",label:"Analyzing..."};default:return{className:"tag-waiting",label:formatStatusLabel(incident.status)}}}
+async function openIncidentFromDashboard(incidentId){localStorage.setItem("last_incident_id",incidentId);goMain("reports");goSub("status");await loadIncidentDetails(incidentId)}
+function openLinkedIncident(event,incidentId){if(event)event.stopPropagation();openIncidentFromDashboard(incidentId)}
+function resolveIncident(incidentId){state.resolvingIncidentId=incidentId;const modal=$("resolve-modal");const notes=$("resolve-notes");const target=$("resolve-target");const incident=state.incidents.find((item)=>item.incident_id===incidentId);target.textContent=incident?`Incident #${incidentId}`:`Incident #${incidentId}`;notes.value="";$("resolve-confirm-btn").disabled=false;$("resolve-confirm-btn").textContent="Mark as resolved";modal.classList.add("show");setTimeout(()=>notes.focus(),20)}
+function closeResolveModal(){state.resolvingIncidentId="";$("resolve-modal").classList.remove("show")}
+function dismissResolveModal(event){if(event.target===event.currentTarget)closeResolveModal()}
+async function confirmResolveIncident(){const incidentId=state.resolvingIncidentId;if(!incidentId)return;const button=$("resolve-confirm-btn");const notes=$("resolve-notes").value.trim();button.disabled=true;button.textContent="Saving...";const form=new FormData();form.append("resolution_notes",notes);try{const response=await fetch(`/incident/${incidentId}/resolve`,{method:"POST",body:form});const data=await response.json();if(!response.ok)throw new Error(data.detail||"The incident could not be resolved.");closeResolveModal();showBanner("Report marked as resolved successfully.","info","dashboard-banner");await loadDashboard();if(state.lastIncident&&state.lastIncident.incident_id===incidentId){await loadIncidentDetails(incidentId)}}catch(error){button.disabled=false;button.textContent="Mark as resolved";showBanner(error.message||"The incident could not be resolved.","error","dashboard-banner")}}
+async function loadSystemStatus(){const labelNode=$("status-label");if(!labelNode)return;try{const [indexRes,knowledgeRes]=await Promise.all([fetch("/index/status"),fetch("/knowledge/status")]);const index=await indexRes.json();const knowledge=await knowledgeRes.json();const chunkCount=Number(index?.chunk_count||0);const knowledgeCount=Number(knowledge?.knowledge_chunks||0);const label=index?.status==="indexed"?`System active · ${chunkCount} indexed files · ${knowledgeCount} knowledge chunks`:"Index pending - run /index first";labelNode.textContent=label}catch(_error){labelNode.textContent="System active"}}
+function mapSeverity(severity){const key=(severity||"MEDIUM").toUpperCase();if(key==="CRITICAL")return{label:"Urgent",className:"urgent",colorVar:"--red"};if(key==="HIGH")return{label:"Important",className:"important",colorVar:"--amber"};if(key==="LOW")return{label:"Minor",className:"low",colorVar:"--green"};return{label:"Moderate",className:"medium",colorVar:"--accent"}}
+function formatStatusLabel(status){const map={RECEIVED:"Report received",TRIAGING:"Analyzing",TRIAGED:"Analysis ready",TICKET_CREATED:"Ticket created",TEAM_NOTIFIED:"Team notified",REPORTER_NOTIFIED:"Resolved",RESOLVED:"Resolved",DUPLICATE:"Duplicate"};return map[status]||"Unknown status"}
+function getAffectedService(incident){return incident.world_model?.affected_service||incident.assigned_team||"Unidentified service"}
+function getImpactLabel(incident){if(incident.final_severity==="CRITICAL")return"All users";if(incident.final_severity==="HIGH")return"Critical flow affected";if(incident.final_severity==="LOW")return"Localized impact";return"Moderate impact"}
+function getBlastRadiusLabel(incident){const radius=incident.world_model?.blast_radius||[];if(Array.isArray(radius)&&radius.length)return radius.join(", ");return"No other confirmed services"}
+function barClassForSeverity(severity){if(severity==="CRITICAL")return"critical";if(severity==="HIGH")return"high";if(severity==="LOW")return"low";return"medium"}
+function extractReporterName(rawReport){const match=/^Reporter:\s*(.*?)\s*\(/m.exec(rawReport||"");return match?match[1].trim():""}
+function extractReporterEmail(rawReport){const match=/\(([^)]+@[^)]+)\)/.exec(rawReport||"");return match?match[1].trim():""}
+function similarityLabel(incident){const score=incident.similarity_score;if(typeof score==="number")return`${Math.round(score*100)}% similar`;return`Related to ${incident.duplicate_of}`}
+function formatRelativeTime(dateString){if(!dateString)return"just now";const date=new Date(dateString);const seconds=Math.floor((Date.now()-date.getTime())/1000);if(Number.isNaN(seconds))return"just now";if(seconds<60)return"less than 1 min ago";const minutes=Math.floor(seconds/60);if(minutes<60)return`${minutes} min ago`;const hours=Math.floor(minutes/60);if(hours<24)return`${hours} h ago`;const days=Math.floor(hours/24);return`${days} d ago`}
+function formatAbsoluteDate(dateString){if(!dateString)return"--";const date=new Date(dateString);if(Number.isNaN(date.getTime()))return"--";return new Intl.DateTimeFormat("es-MX",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",timeZoneName:"short"}).format(date)}
+function isToday(dateString){if(!dateString)return false;const date=new Date(dateString);const now=new Date();return date.getFullYear()===now.getFullYear()&&date.getMonth()===now.getMonth()&&date.getDate()===now.getDate()}
+function escapeHtml(value){return String(value??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;")}
+function mapSeverity(severity){const key=String(severity||"MEDIUM").toUpperCase();if(key==="CRITICAL")return{label:"Urgent",className:"urgent",accent:"var(--red)"};if(key==="HIGH")return{label:"Important",className:"important",accent:"var(--amber)"};if(key==="LOW")return{label:"Minor",className:"low",accent:"var(--green)"};if(key==="DUPLICATE")return{label:"Duplicate",className:"medium",accent:"var(--violet)"};return{label:"Moderate",className:"medium",accent:"var(--accent)"}}
+function getAffectedService(incident){const service=incident?.world_model?.affected_service;if(service)return service;const fallback=Array.isArray(incident?.verified_root_causes)?incident.verified_root_causes[0]:"";if(fallback&&fallback.includes(":"))return fallback.split(":")[0].trim();return incident?.assigned_team||"Unidentified service"}
+function getImpactLabel(incident){const entityMessage=String(incident?.entities?.error_message||"").trim();if(entityMessage)return entityMessage;const report=String(incident?.raw_report||"").toLowerCase();if(report.includes("timeout"))return"Timeout observed by end users";if(report.includes("500"))return"HTTP 500 returned to end users";if(report.includes("502"))return"HTTP 502 returned to end users";return"No determined impact"}
+function setSortOrder(order){state.currentSort=order;renderDashboard()}
+function sortIncidents(incidents){const sorted=[...incidents];sorted.sort((left,right)=>{const leftTime=new Date(left.created_at||0).getTime()||0;const rightTime=new Date(right.created_at||0).getTime()||0;return state.currentSort==="oldest"?leftTime-rightTime:rightTime-leftTime});return sorted}
+function renderDashboard(){$("dashboard-subtitle").textContent=`Updated - ${formatAbsoluteDate(new Date().toISOString())} - eShop Production`;const metrics=calcMetrics(state.incidents);$("metric-open").textContent=String(metrics.open);$("metric-open-sub").textContent=`${metrics.urgent} urgent`; $("metric-today").textContent=String(metrics.today);$("metric-resolved").textContent=String(metrics.resolved);$("metric-dup").textContent=String(metrics.duplicates);if($("incident-search"))$("incident-search").value=state.incidentSearch;document.querySelectorAll("[data-sort]").forEach((chip)=>chip.classList.toggle("active",chip.dataset.sort===state.currentSort));renderIncidentList(sortIncidents(state.incidents.filter(matchesFilter)))}
+function renderIncidentList(incidents){const list=$("incident-list");list.innerHTML="";if(!incidents.length){list.innerHTML=`<div class="empty-state"><h3>No incidents for this filter</h3><p>New reports will appear here as they come in.</p></div>`;return}incidents.forEach((incident)=>{const item=document.createElement("div");item.className="inc";item.onclick=()=>openIncidentFromDashboard(incident.incident_id);const severityClass=incident.duplicate_of?"dup":barClassForSeverity(incident.final_severity);const tag=buildStatusTag(incident);const resolveButton=["TEAM_NOTIFIED","TICKET_CREATED"].includes(incident.status)&&!incident.duplicate_of?`<button class="res-btn" onclick="event.stopPropagation(); resolveIncident('${incident.incident_id}')">Mark as resolved</button>`:"";const subtitle=incident.duplicate_of?`${formatRelativeTime(incident.created_at)} - ${similarityLabel(incident)}`:`${extractReporterName(incident.raw_report)||"User"} - ${formatRelativeTime(incident.created_at)} - ${getAffectedService(incident)}`;item.innerHTML=`<div class="inc-bar ${severityClass}"></div><div class="inc-body"><div class="inc-title">${escapeHtml(buildIncidentTitle(incident))}</div><div class="inc-sub">${escapeHtml(subtitle)}</div></div><div class="inc-right"><span class="tag ${tag.className}">${escapeHtml(tag.label)}</span>${incident.duplicate_of?`<a href="#" class="dup-ref" onclick="openLinkedIncident(event,'${escapeHtml(incident.duplicate_of)}')">-> Merged with #${escapeHtml(incident.duplicate_of)}</a>`:resolveButton}<span class="view-link">View analysis</span></div>`;list.appendChild(item)})}
+async function boot(){restoreTheme();initUpload();initSeverityPicker();await loadSystemStatus();await loadDashboard();const savedMain=localStorage.getItem("current_main_screen")||"reports";const savedSub=localStorage.getItem("current_sub_screen")||"new";goMain(savedMain);if(savedMain==="reports"){goSub(savedSub)}}
+boot();
+</script>
+</body>
+</html>

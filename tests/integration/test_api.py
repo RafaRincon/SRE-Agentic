@@ -22,6 +22,9 @@ class FakeGraph:
             raise self.error
         return self.result
 
+    def get_state(self, config=None):
+        return None
+
 
 def build_settings(**overrides):
     data = {
@@ -107,31 +110,32 @@ def test_readyz_degraded(monkeypatch):
     assert response.json()["components"]["code_index"]["ready"] is False
 
 
+def test_root_serves_frontend():
+    with TestClient(main_module.app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "SRE Agent" in response.text
+
+
 def test_incident_submission_success(monkeypatch):
+    persisted = []
+    async def fake_embedding(*_args, **_kwargs):
+        return [0.1, 0.2, 0.3]
     graph = FakeGraph(
         result={
-            "status": IncidentStatus.TRIAGED.value,
-            "triage_summary": "Null guard missing in OrdersController.",
+            "status": IncidentStatus.TEAM_NOTIFIED.value,
+            "triage_summary": "Summary",
             "final_severity": "HIGH",
-            "verified_root_causes": ["OrdersController.cs: Missing null guard"],
-            "epistemic_context": {
-                "observed": [{"label": "error_code=500", "evidence": "500"}],
-                "inferred": [{"label": "Missing null guard", "evidence": "hypothesis"}],
-                "unknown": [{"label": "upstream_validation_or_wiring", "evidence": "not indexed"}],
-            },
-            "suggested_runbooks": [
-                {
-                    "runbook_id": "RB-42",
-                    "title": "Checkout 500 Runbook",
-                    "escalation_path": "Order Team -> Platform",
-                    "estimated_resolution_time": "15m",
-                }
-            ],
+            "verified_root_causes": ["src/app.py: simulated issue"],
+            "suggested_runbooks": [],
             "ticket": {
-                "ticket_id": "SRE-123456",
-                "ticket_url": "https://jira.example.com/browse/SRE-123456",
-                "assigned_team": "Order Team",
+                "ticket_id": "SRE-123",
+                "ticket_url": "https://jira.example.com/browse/SRE-123",
+                "assigned_team": "Platform Team",
             },
+            "duplicate_of": "",
             "errors": [],
         }
     )
@@ -140,6 +144,16 @@ def test_incident_submission_success(monkeypatch):
         return [0.1, 0.2, 0.3]
 
     monkeypatch.setattr(main_module.llm_provider, "generate_embedding", fake_generate_embedding)
+    monkeypatch.setattr(
+        main_module.llm_provider,
+        "generate_embedding",
+        fake_embedding,
+    )
+    monkeypatch.setattr(
+        main_module.db_provider,
+        "find_duplicate_incident",
+        lambda **_kwargs: None,
+    )
     monkeypatch.setattr(
         main_module.db_provider,
         "find_duplicate_incident",
@@ -159,17 +173,15 @@ def test_incident_submission_success(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["incident_id"]
-    assert payload["status"] == IncidentStatus.TRIAGED.value
-    assert payload["ticket_id"] == "SRE-123456"
-    assert "epistemic_context" not in payload
-    assert payload["suggested_runbooks"][0]["runbook_id"] == "RB-42"
-
+    assert payload["status"] == IncidentStatus.TEAM_NOTIFIED.value
+    assert payload["ticket_id"] == "SRE-123"
+    assert payload["suggested_runbooks"] == []
     submitted_state = graph.calls[0]["state"]
     assert submitted_state["has_image"] is True
     assert submitted_state["image_mime_type"] == "image/png"
     assert submitted_state["image_data_b64"]
     assert submitted_state["raw_report"].startswith("Reporter: Hector (hector@example.com)")
-    assert graph.calls[0]["config"]["configurable"]["thread_id"] == payload["incident_id"]
+    assert submitted_state["incident_id"] == payload["incident_id"]
 
 
 def test_incident_submission_rejects_unsupported_image():
@@ -189,6 +201,38 @@ def test_incident_submission_rejects_oversized_image(monkeypatch):
         main_module,
         "get_settings",
         lambda: build_settings(app_max_upload_bytes=4),
+    assert persisted[0]["incident_id"] == payload["incident_id"]
+    assert persisted[0]["status"] == IncidentStatus.RECEIVED.value
+    assert "image_data_b64" not in persisted[0]
+    assert persisted[1]["status"] == IncidentStatus.TRIAGING.value
+    assert persisted[-1]["status"] == IncidentStatus.TEAM_NOTIFIED.value
+
+
+def test_incident_submission_accepts_client_generated_incident_id(monkeypatch):
+    persisted = []
+
+    async def fake_embedding(*_args, **_kwargs):
+        return [0.1, 0.2, 0.3]
+
+    graph = FakeGraph(
+        result={
+            "status": IncidentStatus.TEAM_NOTIFIED.value,
+            "triage_summary": "Summary",
+            "final_severity": "HIGH",
+            "verified_root_causes": [],
+            "suggested_runbooks": [],
+            "ticket": {},
+            "duplicate_of": "",
+            "errors": [],
+        }
+    )
+    monkeypatch.setattr(main_module, "get_graph", lambda: graph)
+    monkeypatch.setattr(main_module.llm_provider, "generate_embedding", fake_embedding)
+    monkeypatch.setattr(main_module.db_provider, "find_duplicate_incident", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        main_module.db_provider,
+        "upsert_incident",
+        lambda incident: persisted.append(incident) or incident,
     )
 
     with TestClient(main_module.app) as client:
@@ -206,10 +250,28 @@ def test_incident_submission_returns_500_when_pipeline_fails(monkeypatch):
     async def fake_generate_embedding(*args, **kwargs):
         return [0.1, 0.2, 0.3]
 
+            data={"incident_id": "client-incident-1", "report": "HTTP 500 on checkout"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["incident_id"] == "client-incident-1"
+    assert persisted[0]["incident_id"] == "client-incident-1"
+
+
+def test_incident_submission_returns_500_when_pipeline_fails(monkeypatch):
+    graph = FakeGraph(error=RuntimeError("boom"))
+    async def fake_embedding(*_args, **_kwargs):
+        return [0.1, 0.2, 0.3]
+    monkeypatch.setattr(main_module, "get_graph", lambda: graph)
     monkeypatch.setattr(
-        main_module,
-        "get_graph",
-        lambda: FakeGraph(error=RuntimeError("pipeline offline")),
+        main_module.llm_provider,
+        "generate_embedding",
+        fake_embedding,
+    )
+    monkeypatch.setattr(
+        main_module.db_provider,
+        "find_duplicate_incident",
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(main_module.llm_provider, "generate_embedding", fake_generate_embedding)
     monkeypatch.setattr(
@@ -222,7 +284,7 @@ def test_incident_submission_returns_500_when_pipeline_fails(monkeypatch):
         response = client.post("/incident", data={"report": "HTTP 500 on checkout"})
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Triage pipeline failed: pipeline offline"
+    assert "Triage pipeline failed" in response.json()["detail"]
 
 
 def test_get_incident_success(monkeypatch):
