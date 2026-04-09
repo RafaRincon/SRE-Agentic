@@ -1,0 +1,34 @@
+# === Core ===
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+
+# === LLM ===
+google-genai
+
+# === Azure Cosmos DB NoSQL ===
+azure-cosmos
+azure-identity
+
+# === LangGraph ===
+langgraph
+
+langgraph-checkpoint-cosmosdb
+
+# === Indexer ===
+gitpython
+langchain-text-splitters
+
+
+langfuse
+
+# === Utils ===
+httpx
+python-dotenv
+
+# === Testing ===
+pytest
+pytest-asyncio
+pytest-cov

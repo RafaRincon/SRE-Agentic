@@ -1,0 +1,60 @@
+# --- Directorios Ocultos ---
+.*
+# Excepciones necesarias
+!.gitignore
+!.git/
+!.github/
+!.env.example
+!.agents/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- Base de Datos / Local Storage ---
+*.db
+*.sqlite3
+.eshop_cache/
+
+# --- Variables de Entorno ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Sistema Operativo (macOS) ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# --- IDEs (VS Code & JetBrains) ---
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# --- Docker ---
+.docker-compose.override.yml
+
+# --- Logs ---
+*.log
+logs/
+.agents/skills/**/*.md
