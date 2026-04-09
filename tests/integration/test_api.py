@@ -14,11 +14,14 @@ class FakeGraph:
         self.error = error
         self.calls = []
 
-    async def ainvoke(self, state):
-        self.calls.append(state)
+    async def ainvoke(self, state, config=None):
+        self.calls.append((state, config))
         if self.error:
             raise self.error
         return self.result
+
+    def get_state(self, config=None):
+        return None
 
 
 def test_health_check():
@@ -32,6 +35,15 @@ def test_health_check():
     assert payload["status"] == "healthy"
     assert payload["service"] == "sre-agent"
     assert "timestamp" in payload
+
+
+def test_root_serves_frontend():
+    with TestClient(main_module.app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "SRE Agent" in response.text
 
 
 def test_incident_submission_success(monkeypatch):
@@ -84,11 +96,12 @@ def test_incident_submission_success(monkeypatch):
     assert payload["ticket_id"] == "SRE-123456"
     assert payload["suggested_runbooks"][0]["runbook_id"] == "RB-42"
 
-    submitted_state = graph.calls[0]
+    submitted_state, submitted_config = graph.calls[0]
     assert submitted_state["has_image"] is True
     assert submitted_state["image_mime_type"] == "image/png"
     assert submitted_state["image_data_b64"]
     assert submitted_state["raw_report"].startswith("Reporter: Hector (hector@example.com)")
+    assert submitted_config["configurable"]["thread_id"] == payload["incident_id"]
 
     assert "image_data_b64" not in persisted[0]
     assert persisted[0]["incident_id"] == payload["incident_id"]
