@@ -104,7 +104,7 @@ CRITICAL RULES:
    - `inferred`: the causal hypothesis that follows from those observed facts
    - `unknown`: preconditions, upstream validation, configuration, or wiring you cannot see
 
-Generate 2-4 hypotheses, ordered by confidence (highest first).
+Generate 5-8 hypotheses, ordered by confidence (highest first).
 Each hypothesis MUST have an exact_span COPIED from the real code or it will be DISCARDED."""
 
 def build_risk_hypothesis_prompt(
@@ -147,7 +147,7 @@ IMPORTANT:
    - Observed = only facts directly visible in the supplied code/history
    - Inferred = the root cause statement that follows from those facts
    - Unknown = dependencies, config, bootstrapping, or upstream guarantees not visible here
-Generate 2-4 hypotheses grounded in the real code."""
+Generate 5-8 hypotheses grounded in the real code."""
 
 # -----------------
 # FALSIFIER PROMPTS

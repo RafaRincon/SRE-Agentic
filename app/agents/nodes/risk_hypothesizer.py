@@ -46,6 +46,9 @@ class ExpandedQueries(BaseModel):
     dependency_query: str = Field(
         description="Search query focused on inter-service dependencies, event bus, and integration points"
     )
+    hypothetical_code_query: str = Field(
+        description="HyDE (Hypothetical Document Embeddings): Write a fake snippet of code that would perfectly cause this exact failure, to find structurally similar code."
+    )
 
 
 class HypothesesOutput(BaseModel):
@@ -140,6 +143,7 @@ Stack: {(entities.get('stack_trace') or '')[:200]}"""
             expanded.service_query,
             expanded.pattern_query,
             expanded.dependency_query,
+            expanded.hypothetical_code_query,
         ]
 
         logger.info(
@@ -183,6 +187,10 @@ def _manual_expand(raw_report: str, world_model: dict, entities: dict) -> list[s
     if not queries:
         queries.append(raw_report[:500])
 
+    # HyDE fallback
+    if entities.get("error_code") or entities.get("error_message"):
+        queries.append(f"throw new Exception(\"{entities.get('error_message', '')}\")")
+
     return queries
 
 
@@ -194,7 +202,7 @@ def _manual_expand(raw_report: str, world_model: dict, entities: dict) -> list[s
 async def retrieve_with_expansion(
     queries: list[str],
     service_filter: str | None = None,
-    top_k_per_query: int = 5,
+    top_k_per_query: int = 15,
 ) -> list[dict]:
     """
     Execute vector search for each expanded query and merge results.
@@ -227,13 +235,13 @@ async def retrieve_with_expansion(
             logger.warning(f"[retrieval] Query failed: {e}")
             continue
 
-    # Sort by similarity score (higher = better), take top 15
+    # Sort by similarity score (higher = better), take top 50 to maximize recall
     all_chunks.sort(
-        key=lambda c: c.get("similarity_score", 0),
+        key=lambda c: c.get("similarity_score") or 0,
         reverse=True,
     )
 
-    deduplicated = all_chunks[:15]
+    deduplicated = all_chunks[:50]
 
     logger.info(
         f"[retrieval] {len(queries)} queries → "
@@ -268,7 +276,7 @@ async def risk_hypothesizer_node(state: dict) -> dict:
     retrieved_chunks = await retrieve_with_expansion(
         queries=expanded_queries,
         service_filter=service_filter,
-        top_k_per_query=5,
+        top_k_per_query=15,
     )
 
     # --- Step 2b: Retrieve historical incidents (FLYWHEEL) ---
@@ -283,7 +291,7 @@ async def risk_hypothesizer_node(state: dict) -> dict:
         historical_chunks = db_provider.knowledge_search(
             query_vector=history_embedding,
             query_text=primary_query,
-            top_k=5,
+            top_k=15,
             service_filter=service_filter,
         )
         if historical_chunks:

@@ -47,6 +47,11 @@ def merge_lists(a: list, b: list) -> list:
     return a + b
 
 
+def last_value(a: Any, b: Any) -> Any:
+    """Reducer: last-writer-wins for scalar keys (FSM status, severity, etc.)."""
+    return b
+
+
 # ---------------------------------------------------------------------------
 # Graph State
 # ---------------------------------------------------------------------------
@@ -55,6 +60,7 @@ class GraphState(TypedDict, total=False):
     """
     State schema for the LangGraph pipeline.
     Uses reducers for list fields to support parallel fan-in.
+    Scalar keys that are written by multiple nodes use last_value (last-writer-wins).
     """
     # Identity
     incident_id: str
@@ -67,8 +73,8 @@ class GraphState(TypedDict, total=False):
     image_data_b64: str
     report_embedding: list  # Pre-computed from dedup phase — reused by consolidator
 
-    # FSM
-    status: str
+    # FSM — multiple nodes write status (intake → consolidator → actions)
+    status: Annotated[str, last_value]
 
     # Track A
     world_model: dict

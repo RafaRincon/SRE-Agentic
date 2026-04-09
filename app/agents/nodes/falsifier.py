@@ -329,7 +329,7 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
     """
     settings = get_settings()
     client = genai.Client(api_key=settings.gemini_api_key)
-    model = settings.gemini_model
+    model = "gemini-3.1-pro-preview"  # Explicitly use 3.1 Pro for falsifier
 
     h_desc = hypothesis.get("description", "No description")
 
