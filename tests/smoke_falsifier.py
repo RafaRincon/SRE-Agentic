@@ -1,9 +1,5 @@
 """
-Smoke test: Epistemic Falsifier (REAL — no mocks)
-
-Runs the complete falsification loop against actual:
-- Gemini API (function calling + code_execution)
-- Cosmos DB DiskANN (RAG tools)
+Smoke test: Epistemic Falsifier — muestra razonamiento y trazas del agente
 
 Usage:
     cd hackaton
@@ -12,139 +8,163 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import sys
 import time
 from pathlib import Path
 
-# --- Make app importable from tests/ ---
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Set up logging so we can see every turn in the loop
+# ---------------------------------------------------------------------------
+# Logging: silenciar todo excepto el falsifier y la app
+# ---------------------------------------------------------------------------
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    level=logging.WARNING,  # default: callado
+    format="%(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-# Also show the falsifier's internal loop
+# DEBUG en el falsifier para ver tool results
 logging.getLogger("app.agents.nodes.falsifier").setLevel(logging.DEBUG)
+# Silenciar Azure, httpx, cosmos
+for noisy in ("azure", "httpx", "urllib3", "asyncio", "azure.cosmos"):
+    logging.getLogger(noisy).setLevel(logging.CRITICAL)
 
-from app.agents.nodes.falsifier import falsify_hypothesis, FalsificationVerdict
+
+from app.agents.nodes.falsifier import falsify_hypothesis, FalsificationVerdict  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Hipótesis de prueba
+# ---------------------------------------------------------------------------
+
+HYPOTHESES = [
+    {
+        "label": "Ordering — NullRef en OrderItems",
+        "expect": "CORROBORATED o INSUFFICIENT_EVIDENCE",
+        "hypothesis": {
+            "description": (
+                "El método CreateOrderCommandHandler.Handle() itera sobre "
+                "message.OrderItems sin verificar si la colección es null, "
+                "causando NullReferenceException en pedidos vacíos."
+            ),
+            "suspected_file": "src/Ordering.API/Application/Commands/CreateOrderCommandHandler.cs",
+            "suspected_function": "Handle",
+            "exact_span": "foreach (var item in message.OrderItems)",
+            "confidence": 0.82,
+        },
+    },
+    {
+        "label": "Basket — Redis sin TTL",
+        "expect": "CORROBORATED o INSUFFICIENT_EVIDENCE",
+        "hypothesis": {
+            "description": (
+                "RedisBasketRepository.UpdateBasketAsync guarda la cesta en Redis "
+                "sin TTL, dejando datos obsoletos indefinidamente entre sesiones."
+            ),
+            "suspected_file": "src/Basket.API/Repositories/RedisBasketRepository.cs",
+            "suspected_function": "UpdateBasketAsync",
+            "exact_span": "await _database.StringSetAsync(key, JsonSerializer.Serialize(basket))",
+            "confidence": 0.75,
+        },
+    },
+    {
+        "label": "Archivo fabricado — debe FALSIFICAR",
+        "expect": "FALSIFIED",
+        "hypothesis": {
+            "description": (
+                "PaymentGatewayAdapterV2.ProcessTransaction tiene un null check "
+                "faltante en el transaction ID que causa fallos silenciosos."
+            ),
+            "suspected_file": "src/Payment.API/Adapters/PaymentGatewayAdapterV2.cs",
+            "suspected_function": "ProcessTransaction",
+            "exact_span": "var result = gateway.Charge(transactionId.Value)",
+            "confidence": 0.5,
+        },
+    },
+]
 
 
 # ---------------------------------------------------------------------------
-# Test hypotheses — one we expect to be CORROBORATED (no defenses found)
-# and one we expect to be FALSIFIED (strong defenses exist)
+# Traza visual del agente
 # ---------------------------------------------------------------------------
 
-HYPOTHESIS_ORDERING_NULL = {
-    "hypothesis_id": "h-ordering-01",
-    "description": (
-        "The 'message.OrderItems' collection is null when "
-        "CreateOrderCommandHandler.Handle() iterates over it, "
-        "causing a NullReferenceException. No null guard exists."
-    ),
-    "suspected_file": "src/Ordering.API/Application/Commands/CreateOrderCommandHandler.cs",
-    "suspected_function": "Handle",
-    "exact_span": "foreach (var item in message.OrderItems)",
-    "confidence": 0.82,
-}
+def print_trace(verdict: FalsificationVerdict):
+    """Imprime el razonamiento completo del agente de forma legible."""
+    color = {
+        "FALSIFIED": "\033[91m",       # rojo
+        "CORROBORATED": "\033[92m",    # verde
+        "INSUFFICIENT_EVIDENCE": "\033[93m",  # amarillo
+    }.get(verdict.verdict, "\033[0m")
+    reset = "\033[0m"
 
-HYPOTHESIS_BASKET_REDIS = {
-    "hypothesis_id": "h-basket-redis-01",
-    "description": (
-        "Redis basket keys are stored without TTL in RedisBasketRepository, "
-        "meaning stale cart data persists indefinitely across user sessions."
-    ),
-    "suspected_file": "src/Basket.API/Repositories/RedisBasketRepository.cs",
-    "suspected_function": "UpdateBasketAsync",
-    "exact_span": "await _database.StringSetAsync(key, JsonSerializer.Serialize(basket))",
-    "confidence": 0.75,
-}
+    print(f"\n  Veredicto   : {color}{verdict.verdict}{reset}  (confianza: {verdict.confidence})")
+    print(f"\n  Razonamiento:\n")
+    # Imprime el razonamiento con indentación
+    for line in verdict.reasoning.strip().splitlines():
+        print(f"    {line}")
 
-# A deliberately fabricated hypothesis — should be FALSIFIED (file doesn't exist)
-HYPOTHESIS_FABRICATED = {
-    "hypothesis_id": "h-fabricated-01",
-    "description": (
-        "The PaymentGatewayAdapterV2.cs file has a missing null check "
-        "on the transaction ID that causes silent payment failures."
-    ),
-    "suspected_file": "src/Payment.API/Adapters/PaymentGatewayAdapterV2.cs",
-    "suspected_function": "ProcessTransaction",
-    "exact_span": "var result = gateway.Charge(transactionId.Value)",
-    "confidence": 0.5,
-}
+    if verdict.counter_evidence:
+        print(f"\n  Contra-evidencia encontrada:")
+        for ev in verdict.counter_evidence:
+            print(f"    → {ev.strip()[:200]}")
 
 
-async def run_smoke():
-    hypotheses = [
-        ("Ordering NullRef (expect CORROBORATED)", HYPOTHESIS_ORDERING_NULL),
-        ("Basket Redis TTL (expect CORROBORATED)", HYPOTHESIS_BASKET_REDIS),
-        ("Fabricated file (expect FALSIFIED/INSUFFICIENT)", HYPOTHESIS_FABRICATED),
-    ]
+# ---------------------------------------------------------------------------
+# Runner
+# ---------------------------------------------------------------------------
 
-    results = []
+async def run():
     total_start = time.perf_counter()
+    results = []
 
-    for label, hyp in hypotheses:
-        print(f"\n{'='*70}")
-        print(f"TESTING: {label}")
-        print(f"Hypothesis: {hyp['description'][:80]}...")
-        print(f"{'='*70}")
+    for item in HYPOTHESES:
+        label = item["label"]
+        hyp = item["hypothesis"]
+        expect = item["expect"]
+
+        sep = "─" * 65
+        print(f"\n┌{sep}┐")
+        print(f"│  {label}")
+        print(f"│  Espera: {expect}")
+        print(f"│  Hipótesis: {hyp['description'][:70]}...")
+        print(f"└{sep}┘")
 
         start = time.perf_counter()
         try:
-            verdict: FalsificationVerdict = await falsify_hypothesis(hyp)
+            verdict = await falsify_hypothesis(hyp)
             elapsed = time.perf_counter() - start
-
-            print(f"\n✅ Verdict      : {verdict.verdict}")
-            print(f"   Confidence   : {verdict.confidence}")
-            print(f"   Elapsed      : {elapsed:.1f}s")
-            print(f"   Reasoning    : {verdict.reasoning[:200]}")
-            if verdict.counter_evidence:
-                print(f"   Counter-ev.  : {verdict.counter_evidence[0][:150]}")
-
-            results.append({
-                "label": label,
-                "verdict": verdict.verdict,
-                "confidence": verdict.confidence,
-                "elapsed_s": round(elapsed, 2),
-                "ok": True,
-            })
-
+            print_trace(verdict)
+            print(f"\n  ⏱  {elapsed:.1f}s")
+            results.append({"label": label, "verdict": verdict.verdict,
+                            "confidence": verdict.confidence, "ok": True,
+                            "elapsed": elapsed})
         except Exception as e:
             elapsed = time.perf_counter() - start
-            print(f"\n❌ EXCEPTION after {elapsed:.1f}s: {e}")
             import traceback
+            print(f"\n  ❌ EXCEPCIÓN tras {elapsed:.1f}s: {e}")
             traceback.print_exc()
-            results.append({
-                "label": label,
-                "verdict": "ERROR",
-                "error": str(e),
-                "elapsed_s": round(elapsed, 2),
-                "ok": False,
-            })
+            results.append({"label": label, "verdict": "ERROR",
+                            "ok": False, "elapsed": elapsed})
 
-    total_elapsed = time.perf_counter() - total_start
-
-    print(f"\n{'='*70}")
-    print("SMOKE TEST SUMMARY")
-    print(f"{'='*70}")
+    # -----------------------------------------------------------------------
+    # Resumen
+    # -----------------------------------------------------------------------
+    total = time.perf_counter() - total_start
+    print(f"\n{'═' * 67}")
+    print("  RESUMEN SMOKE TEST")
+    print(f"{'═' * 67}")
     for r in results:
-        status = "✅" if r["ok"] else "❌"
-        print(f"{status} {r['label']}")
-        print(f"   Verdict: {r['verdict']} | {r['elapsed_s']}s")
-    print(f"\nTotal elapsed: {total_elapsed:.1f}s")
+        icon = "✅" if r["ok"] else "❌"
+        conf = f"  conf={r.get('confidence', '?')}" if r["ok"] else ""
+        print(f"  {icon}  [{r['verdict']:<25}]{conf}  {r['elapsed']:.1f}s  —  {r['label']}")
+    print(f"\n  Total: {total:.1f}s")
 
-    # Fail if any errored
     errors = [r for r in results if not r["ok"]]
     if errors:
-        print(f"\n❌ {len(errors)} test(s) ERRORED — smoke test FAILED")
+        print(f"\n  ❌ {len(errors)} test(s) con errores")
         sys.exit(1)
     else:
-        print("\n✅ All falsifier smoke tests completed (no exceptions)")
+        print("\n  ✅ Todos los tests completados sin excepciones\n")
 
 
 if __name__ == "__main__":
-    asyncio.run(run_smoke())
+    asyncio.run(run())

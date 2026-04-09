@@ -1,25 +1,18 @@
 """
 SRE Agent — Epistemic Falsifier Node (Track B)
 
-Implements Popperian Falsification using the NATIVE Gemini SDK (google-genai),
-with a transparent multi-turn agentic loop.
+Popperian Falsification with native Gemini SDK (google-genai).
 
 Architecture:
-- Custom Tools (Function Calling): search_code, search_file, search_safeguards
-  → RAG against the indexed eShop codebase (Cosmos DB DiskANN)
-- Built-in Tool: code_execution
-  → Gemini runs Python to do fuzzy matching / regex on retrieved code
-- Tool combination via include_server_side_tool_invocations=True
+  - 2 focused tools: lookup_code (existence check) + check_defenses (safeguard scan)
+  - Built-in code_execution for programmatic verification
+  - Manual turn-by-turn loop for full observability
+  - Tool results include CONCLUSIONS, not just raw code
 
-We manually drive the agentic loop (turn by turn) to:
-  1. Maintain full observability (no black-box)
-  2. Eliminate deadlocks (we control iteration count)
-  3. Properly circulate thought_signatures and tool IDs
-
-Verdicts:
-- CORROBORATED: Agent tried to falsify but found no counter-evidence
-- FALSIFIED: Agent found concrete counter-evidence (cites it)
-- INSUFFICIENT_EVIDENCE: File/function not found in index
+Design principles (from Google FC best practices):
+  - Few tools with clear, distinct purposes (not 4 overlapping search tools)
+  - Rich, self-interpreting tool results (the model reads conclusions, not C# walls)
+  - temperature=1, thinking_level=MEDIUM for Gemini 3 Flash
 """
 
 from __future__ import annotations
@@ -37,8 +30,7 @@ from app.providers import llm_provider, db_provider
 
 logger = logging.getLogger(__name__)
 
-# Max turns in the agentic loop per hypothesis (a turn = model call)
-MAX_FALSIFIER_TURNS = 6
+MAX_FALSIFIER_TURNS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -56,248 +48,284 @@ class FalsificationVerdict(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Function Declarations (custom RAG tools for Gemini)
+# Tool Declarations — only 2 tools, clearly distinct
 # ---------------------------------------------------------------------------
 
-SEARCH_CODE_DECL = {
-    "name": "search_code",
+LOOKUP_CODE_DECL = {
+    "name": "lookup_code",
     "description": (
-        "Search the eShop codebase using semantic similarity. "
-        "Use to find specific functions, null checks, error handling, "
-        "DI registrations, or any code relevant to the hypothesis."
+        "Look up a file and function in the indexed codebase. "
+        "Returns the actual source code if found, or 'FILE_NOT_FOUND' if the file "
+        "does not exist. Use this FIRST to verify the hypothesis references real code. "
+        "The result includes a CONCLUSION telling you whether the file and span exist."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {
+            "filename": {
                 "type": "string",
-                "description": "Semantic search query, e.g. 'null check OrderItems CreateOrderCommandHandler'",
-            }
+                "description": "The filename to look up, e.g. 'CreateOrderCommandHandler.cs'",
+            },
+            "function_name": {
+                "type": "string",
+                "description": "The function or method name to find, e.g. 'Handle'",
+            },
         },
-        "required": ["query"],
+        "required": ["filename"],
     },
 }
 
-SEARCH_FILE_DECL = {
-    "name": "search_file",
+CHECK_DEFENSES_DECL = {
+    "name": "check_defenses",
     "description": (
-        "Verify that a specific file exists in the indexed eShop codebase. "
-        "Returns the file's content chunks if found, or 'NOT FOUND' as counter-evidence."
+        "Search for defensive code (null checks, try/catch, validation, guard clauses) "
+        "that would PREVENT the failure described in the hypothesis. "
+        "Returns matching code with a CONCLUSION: how many safeguards were found "
+        "and whether they cover the specific failure mode. "
+        "Call this AFTER lookup_code confirms the file exists."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "file_path": {
+            "failure_description": {
                 "type": "string",
-                "description": "Partial or full file path, e.g. 'CreateOrderCommandHandler.cs'",
-            }
+                "description": "What failure the hypothesis claims, e.g. 'NullReferenceException when iterating OrderItems'",
+            },
+            "function_name": {
+                "type": "string",
+                "description": "The function to check for defenses, e.g. 'Handle'",
+            },
         },
-        "required": ["file_path"],
+        "required": ["failure_description", "function_name"],
     },
 }
 
-SEARCH_SAFEGUARDS_DECL = {
-    "name": "search_safeguards",
-    "description": (
-        "Search for defensive code patterns (null checks, try/catch, "
-        "validation, guard clauses) that could FALSIFY the hypothesis "
-        "by preventing the claimed failure mode."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "context": {
-                "type": "string",
-                "description": "The function or code area to search for safeguards, e.g. 'Handle method OrderItems'",
-            }
-        },
-        "required": ["context"],
-    },
-}
-
-ALL_TOOL_DECLS = [SEARCH_CODE_DECL, SEARCH_FILE_DECL, SEARCH_SAFEGUARDS_DECL]
+ALL_TOOL_DECLS = [LOOKUP_CODE_DECL, CHECK_DEFENSES_DECL]
 
 
 # ---------------------------------------------------------------------------
-# Tool Executors (our side of the function calling contract)
+# Tool Executors — results include CONCLUSIONS
 # ---------------------------------------------------------------------------
 
 
-async def _exec_search_code(query: str) -> str:
+async def _exec_lookup_code(filename: str, function_name: str = "") -> str:
+    """Direct Cosmos lookup by filename. Returns code + a clear conclusion."""
     try:
-        embedding = await llm_provider.generate_embedding(query, task_type="RETRIEVAL_QUERY")
-        results = db_provider.vector_search(query_vector=embedding, top_k=5)
+        settings = get_settings()
+        container = db_provider.get_container(settings.cosmos_container_chunks)
+
+        # Direct SQL — no vector search needed for existence check
+        fn_lower = filename.split("/")[-1].lower()
+        query = """
+        SELECT TOP 3
+            c.file_path, c.chunk_text, c.start_line, c.end_line,
+            c.class_name, c.method_name
+        FROM c
+        WHERE CONTAINS(LOWER(c.file_path), @fn)
+        ORDER BY c.start_line
+        """
+        params = [{"name": "@fn", "value": fn_lower}]
+        results = list(
+            container.query_items(query=query, parameters=params,
+                                  enable_cross_partition_query=True)
+        )
+
         if not results:
-            return "No matching code found in the indexed codebase."
-        return "\n\n".join(
-            f"FILE: {r.get('file_path', '?')} (L{r.get('start_line','?')}-{r.get('end_line','?')})\n"
-            f"```csharp\n{r.get('chunk_text', '')}\n```"
-            for r in results
-        )
+            return (
+                f"FILE_NOT_FOUND: '{filename}' does not exist in the indexed codebase.\n\n"
+                "CONCLUSION: The hypothesis references a file that is NOT in the codebase. "
+                "This is enough to FALSIFY the hypothesis with confidence 1.0."
+            )
+
+        # Build response with code
+        chunks = []
+        method_found = False
+        for r in results:
+            mname = r.get("method_name", "") or ""
+            if function_name and function_name.lower() in mname.lower():
+                method_found = True
+            chunks.append(
+                f"— {r['file_path']} L{r.get('start_line','?')}-{r.get('end_line','?')} "
+                f"class={r.get('class_name','?')} method={mname}\n"
+                f"```csharp\n{r.get('chunk_text', '')}\n```"
+            )
+
+        code_block = "\n\n".join(chunks)
+
+        # Conclusion
+        if function_name and not method_found:
+            conclusion = (
+                f"CONCLUSION: File '{filename}' EXISTS in the codebase, but the method "
+                f"'{function_name}' was not found in the returned chunks. "
+                "The method may exist in a different chunk or may be named differently."
+            )
+        elif function_name and method_found:
+            conclusion = (
+                f"CONCLUSION: File '{filename}' EXISTS and method '{function_name}' FOUND. "
+                "The hypothesis references real code. Now call check_defenses to see "
+                "if any safeguards prevent the claimed failure."
+            )
+        else:
+            conclusion = (
+                f"CONCLUSION: File '{filename}' EXISTS in the codebase. "
+                "Now call check_defenses to verify the claimed vulnerability."
+            )
+
+        return f"{code_block}\n\n{conclusion}"
+
     except Exception as e:
-        return f"search_code failed: {e}"
+        return f"ERROR: lookup_code failed: {e}"
 
 
-async def _exec_search_file(file_path: str) -> str:
+async def _exec_check_defenses(failure_description: str, function_name: str) -> str:
+    """Hybrid search for safeguards. Returns code + a conclusion with counts."""
     try:
-        embedding = await llm_provider.generate_embedding(
-            f"file {file_path}", task_type="RETRIEVAL_QUERY"
-        )
-        results = db_provider.vector_search(query_vector=embedding, top_k=8)
-        matching = [r for r in results if file_path.lower() in r.get("file_path", "").lower()]
-        if not matching:
-            return f"NOT FOUND: '{file_path}' is not in the indexed codebase. This falsifies any hypothesis citing this file."
-        return "\n\n".join(
-            f"FOUND: {r.get('file_path', '')} (L{r.get('start_line','?')}-{r.get('end_line','?')})\n"
-            f"```csharp\n{r.get('chunk_text', '')}\n```"
-            for r in matching[:4]
-        )
-    except Exception as e:
-        return f"search_file failed: {e}"
-
-
-async def _exec_search_safeguards(context: str) -> str:
-    try:
-        query = f"null check guard clause validation try catch exception {context}"
+        query = f"null check guard try catch exception handling {function_name} {failure_description}"
         embedding = await llm_provider.generate_embedding(query, task_type="RETRIEVAL_QUERY")
-        results = db_provider.vector_search(query_vector=embedding, top_k=5)
+        results = db_provider.vector_search(
+            query_vector=embedding,
+            query_text=query,
+            top_k=3,
+        )
+
         if not results:
-            return "No safeguard patterns found — hypothesis remains unfalsified on this axis."
+            return (
+                "No defensive code found in the codebase for this area.\n\n"
+                f"CONCLUSION: No safeguards found for '{failure_description}'. "
+                "The hypothesis CANNOT be falsified — the claimed vulnerability has no defenses. "
+                "Verdict should be CORROBORATED."
+            )
+
+        # Scan for safeguard patterns
+        safeguard_patterns = [
+            "?? ", "is null", "!= null", "== null", "?.",
+            "argumentnullexception", "throw new", "try {", "catch ("
+        ]
+
         parts = []
+        total_guards = 0
+        relevant_guards = 0
+
         for r in results:
             text = r.get("chunk_text", "")
-            safeguard_patterns = ["?? ", "is null", "!= null", "== null", "?.",
-                                  "ArgumentNullException", "throw new", "if (", "guard"]
-            has_guard = any(p in text.lower() for p in safeguard_patterns)
-            tag = "⚠️ SAFEGUARD" if has_guard else "Code"
+            text_lower = text.lower()
+            found_patterns = [p for p in safeguard_patterns if p in text_lower]
+            count = len(found_patterns)
+            total_guards += count
+
+            # Check if this guard is in the right method
+            method_match = function_name.lower() in (r.get("method_name", "") or "").lower()
+            if method_match and count > 0:
+                relevant_guards += count
+
+            tag = f"⚠️ {count} SAFEGUARD(S)" if count > 0 else "no safeguards"
+            location = "IN TARGET METHOD" if method_match else "in nearby code"
             parts.append(
-                f"{tag} in {r.get('file_path', '?')}:\n```csharp\n{text}\n```"
+                f"— {r.get('file_path', '?')} L{r.get('start_line','?')}-{r.get('end_line','?')} "
+                f"method={r.get('method_name','?')} [{tag}] [{location}]\n"
+                f"```csharp\n{text}\n```"
             )
-        return "\n\n".join(parts)
+
+        code_block = "\n\n".join(parts)
+
+        # Build conclusion
+        if relevant_guards > 0:
+            conclusion = (
+                f"CONCLUSION: Found {relevant_guards} safeguard(s) DIRECTLY in method "
+                f"'{function_name}' that may prevent '{failure_description}'. "
+                "If these safeguards cover the exact failure mode, the hypothesis is FALSIFIED. "
+                "Examine the code above to confirm."
+            )
+        elif total_guards > 0:
+            conclusion = (
+                f"CONCLUSION: Found {total_guards} safeguard(s) in nearby code, but NONE "
+                f"directly in method '{function_name}'. The hypothesis may still hold "
+                "if the safeguards don't cover this specific failure path."
+            )
+        else:
+            conclusion = (
+                f"CONCLUSION: NO safeguards found anywhere near '{function_name}'. "
+                f"The claimed vulnerability '{failure_description}' has no defenses. "
+                "Verdict should be CORROBORATED."
+            )
+
+        return f"{code_block}\n\n{conclusion}"
+
     except Exception as e:
-        return f"search_safeguards failed: {e}"
+        return f"ERROR: check_defenses failed: {e}"
 
 
 async def _dispatch_tool(name: str, args: dict) -> str:
-    """Route a function_call from the model to the correct executor."""
-    if name == "search_code":
-        return await _exec_search_code(args.get("query", ""))
-    elif name == "search_file":
-        return await _exec_search_file(args.get("file_path", ""))
-    elif name == "search_safeguards":
-        return await _exec_search_safeguards(args.get("context", ""))
-    return f"Unknown tool: {name}"
+    """Route a function_call to the correct executor."""
+    if name == "lookup_code":
+        return await _exec_lookup_code(
+            args.get("filename", ""), args.get("function_name", "")
+        )
+    elif name == "check_defenses":
+        return await _exec_check_defenses(
+            args.get("failure_description", ""), args.get("function_name", "")
+        )
+    return (
+        f"Unknown tool: '{name}'. You only have 2 tools: lookup_code and check_defenses. "
+        "Output your VERDICT now with whatever information you have."
+    )
 
 
 # ---------------------------------------------------------------------------
-# Epistemic Falsifier Prompt
+# System Prompt — practical, not philosophical
 # ---------------------------------------------------------------------------
-
-_CODE_EXEC_EXAMPLE = (
-    "```python\n"
-    "# Example: Count null checks in retrieved C# code\n"
-    "import re\n"
-    "code = '...paste C# code here as a string...'\n"
-    "null_checks = re.findall(r'[?][?]|is null|is not null|!= null|== null|[?][.]', code)\n"
-    "try_catches = re.findall(r'try\\s*[{]', code)\n"
-    "print(f'Null checks found: {len(null_checks)}')\n"
-    "print(f'Try-catch blocks: {len(try_catches)}')\n"
-    "for nc in null_checks:\n"
-    "    print(f'  found: {nc}')\n"
-    "```"
-)
 
 FALSIFIER_SYSTEM_PROMPT = (
-    "You are an EPISTEMIC FALSIFIER operating under Karl Popper's philosophy of science.\n\n"
-    "## Your Ontology\n\n"
-    "A hypothesis H makes a CLAIM about the codebase:\n"
-    '  "In file F, function G, condition C causes failure M"\n\n'
-    "This generates TESTABLE PREDICTIONS. Your job is to check those predictions\n"
-    "against the real indexed codebase using your tools.\n\n"
-    "## Your Tools\n\n"
-    "You have TWO categories of tools:\n\n"
-    "### 1. RAG Tools (function calling — you call, we execute, we return results)\n"
-    "- search_file(file_path): Verify a file exists. NOT FOUND = fabricated reference.\n"
-    "- search_code(query): Semantic search for functions, DI registrations, patterns.\n"
-    "- search_safeguards(context): Search for null checks, try/catch, validation.\n\n"
-    "### 2. Code Execution (built-in — you write Python, it runs automatically)\n"
-    "Use this to PROGRAMMATICALLY VERIFY retrieved C# code. Example:\n\n"
-    + _CODE_EXEC_EXAMPLE + "\n\n"
-    "CRITICAL: do not just read code with your eyes — COMPUTE over it.\n"
-    "Regex is more reliable than neural pattern-matching for counting safeguards.\n\n"
-    "## 4 Falsification Axes\n\n"
-    "Axis 1 EXISTENCE: search_file -> does the file exist? NOT FOUND = FALSIFIED.\n"
-    "Axis 2 MECHANISM: search_code -> does the function behave as claimed?\n"
-    "Axis 3 DEFENSES: search_safeguards -> use code_execution to COUNT defensive\n"
-    "  patterns. If count > 0 for the specific failure mode -> FALSIFIED\n"
-    "Axis 4 CONTEXT: search_code for DI registration if H claims a wiring issue\n\n"
+    "You verify whether a code-level hypothesis is true or false by checking it "
+    "against the actual indexed codebase.\n\n"
+    "## Your 2 tools\n\n"
+    "1. lookup_code(filename, function_name) → checks if the file/function exists. "
+    "Read the CONCLUSION at the bottom of the result.\n"
+    "2. check_defenses(failure_description, function_name) → searches for null checks, "
+    "try/catch, guards that would prevent the claimed bug. "
+    "Read the CONCLUSION at the bottom of the result.\n\n"
     "## Workflow\n\n"
-    "1. Call search_file to check EXISTENCE\n"
-    "2. Call search_code or search_safeguards to get real C# code\n"
-    "3. Use code_execution to programmatically count/verify patterns\n"
-    "4. Output your verdict\n\n"
-    "## Decision Criteria\n\n"
-    "- FALSIFIED: Found specific code that CONTRADICTS H. Cite the exact code.\n"
-    "- CORROBORATED: Checked relevant axes, found NO counter-evidence.\n"
-    "- INSUFFICIENT_EVIDENCE: File/function not in the index.\n\n"
-    "## Output Format\n\n"
-    "When done, output EXACTLY this block (no more tool calls after this):\n\n"
-    "VERDICT: [CORROBORATED|FALSIFIED|INSUFFICIENT_EVIDENCE]\n"
-    "REASONING: [which axes you checked and what code_execution computed]\n"
-    "COUNTER_EVIDENCE: [exact code that falsifies, or none found]\n"
-    "CONFIDENCE: [0.0-1.0]"
+    "1. Call lookup_code to see if the file exists.\n"
+    "   - If CONCLUSION says FILE_NOT_FOUND → immediately output VERDICT: FALSIFIED\n"
+    "2. Call check_defenses to see if safeguards prevent the bug.\n"
+    "   - If safeguards found that cover the failure → VERDICT: FALSIFIED\n"
+    "   - If no safeguards found → VERDICT: CORROBORATED\n"
+    "3. Output your verdict. Do NOT call more tools after step 2.\n\n"
+    "## Verdict format\n\n"
+    "VERDICT: CORROBORATED | FALSIFIED | INSUFFICIENT_EVIDENCE\n"
+    "REASONING: what lookup_code and check_defenses told you\n"
+    "COUNTER_EVIDENCE: exact code that falsifies, or 'none'\n"
+    "CONFIDENCE: 0.0 to 1.0"
 )
-
 
 
 def _build_falsification_prompt(hypothesis: dict) -> str:
     h_desc = hypothesis.get("description", "No description")
     h_file = hypothesis.get("suspected_file", "unknown")
     h_func = hypothesis.get("suspected_function", "unknown")
-    h_span = hypothesis.get("exact_span", "")
+    h_span = hypothesis.get("exact_span", "") or ""
     h_conf = hypothesis.get("confidence", 0.5)
+    fname = h_file.split("/")[-1]
 
-    return f"""## Hypothesis Under Test
-
-**Claim**: {h_desc}
-**Suspected File**: {h_file}
-**Suspected Function**: {h_func}
-**Cited Code Span**: ```{h_span}```
-**Prior Confidence**: {h_conf}
-
-## Pre-derived Falsification Plan
-
-Axis 1 — EXISTENCE: call search_file("{h_file}")
-  → NOT FOUND → FALSIFIED
-
-Axis 2 — MECHANISM: call search_code("{h_func} {h_file}")
-  → Does the code path described actually behave as claimed?
-
-Axis 3 — DEFENSES: call search_safeguards("{h_func}")
-  → Any guard/null-check that prevents the described failure?
-
-Axis 4 — CONTEXT (if H claims DI/wiring issue):
-  → call search_code("DI registration {h_file.split('/')[-1]}")
-
-Execute the relevant axes. When you have enough evidence → output your verdict block."""
+    return (
+        f"Hypothesis: {h_desc}\n"
+        f"File: {h_file} (lookup as: {fname})\n"
+        f"Function: {h_func}\n"
+        f"Claimed code: {h_span}\n"
+        f"Prior confidence: {h_conf}\n\n"
+        f"Start with: lookup_code(filename=\"{fname}\", function_name=\"{h_func}\")"
+    )
 
 
 # ---------------------------------------------------------------------------
-# Agentic Loop (manual, transparent)
+# Agentic Loop
 # ---------------------------------------------------------------------------
 
 
 async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
     """
-    Run the Popperian falsification loop for a single hypothesis.
-
-    Uses the native Gemini SDK with:
-    - Custom function declarations (RAG tools) — we execute them
-    - Built-in code_execution — Gemini runs Python server-side
-    - include_server_side_tool_invocations=True for tool context circulation
-
-    The loop is driven manually (turn-by-turn), giving us full control
-    and eliminating any possibility of an opaque deadlock.
+    Run the falsification loop for a single hypothesis.
+    2 tools, ≤4 turns, temp=1, thinking=MEDIUM.
     """
     settings = get_settings()
     client = genai.Client(api_key=settings.gemini_api_key)
@@ -305,27 +333,27 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
 
     h_desc = hypothesis.get("description", "No description")
 
-    # Build the tool config: custom declarations + built-in code_execution
-    # include_server_side_tool_invocations lives in ToolConfig, not GenerateContentConfig
     tools = [
         types.Tool(
             function_declarations=ALL_TOOL_DECLS,
-            code_execution=types.ToolCodeExecution(),  # built-in server-side
+            code_execution=types.ToolCodeExecution(),
         )
     ]
 
     tool_config = types.ToolConfig(
-        include_server_side_tool_invocations=True,  # enables tool context circulation
+        include_server_side_tool_invocations=True,
     )
 
     config = types.GenerateContentConfig(
         system_instruction=FALSIFIER_SYSTEM_PROMPT,
         tools=tools,
         tool_config=tool_config,
-        temperature=0.1,
+        temperature=1,
+        thinking_config=types.ThinkingConfig(
+            thinking_level="MEDIUM",
+        ),
     )
 
-    # Conversation history — grows each turn
     history: list[types.Content] = [
         types.Content(
             role="user",
@@ -333,7 +361,7 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
         )
     ]
 
-    logger.info(f"[falsifier] Starting loop for: '{h_desc[:60]}'")
+    logger.info(f"[falsifier] Starting: '{h_desc[:60]}'")
 
     for turn in range(MAX_FALSIFIER_TURNS):
         try:
@@ -344,19 +372,18 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
                 config=config,
             )
         except Exception as e:
-            logger.error(f"[falsifier] Gemini API error on turn {turn}: {e}")
+            logger.error(f"[falsifier] Turn {turn} API error: {e}")
             break
 
         candidate = response.candidates[0] if response.candidates else None
         if not candidate or not candidate.content:
-            logger.warning(f"[falsifier] Empty candidate on turn {turn}")
+            logger.warning(f"[falsifier] Turn {turn}: empty response")
             break
 
         model_content = candidate.content
-        # Add model response to history (preserves thought_signatures, IDs)
         history.append(model_content)
 
-        # --- Classify what the response contains ---
+        # Classify response parts
         function_calls = []
         has_code_execution = False
         text_parts = []
@@ -366,38 +393,25 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
                 function_calls.append(p.function_call)
             if p.executable_code is not None:
                 has_code_execution = True
-                logger.info(
-                    f"[falsifier] Turn {turn}: code_execution → "
-                    f"{p.executable_code.code[:80]}..."
-                )
             if p.code_execution_result is not None:
                 has_code_execution = True
-                logger.info(
-                    f"[falsifier] Turn {turn}: code_execution result → "
-                    f"{p.code_execution_result.output[:100] if p.code_execution_result.output else 'empty'}"
-                )
             if p.text:
                 text_parts.append(p.text)
 
         full_text = " ".join(text_parts)
 
-        # --- Decision: is the model done? ---
-        # The model is done if:
-        #   1. No function_calls pending (our tools are not needed)
-        #   2. The text contains a VERDICT line (model has decided)
-        # Code execution parts are server-side (already ran), so they don't
-        # require us to send anything back. But if the model used code_execution
-        # WITHOUT producing a verdict, it may want to do more → continue loop.
-
+        # --- Function calls: dispatch and log ---
         if function_calls:
-            # Model wants to use our RAG tools — dispatch and return results
-            logger.info(
-                f"[falsifier] Turn {turn}: dispatching {len(function_calls)} tool(s): "
-                f"{[fc.name for fc in function_calls]}"
-            )
+            names = [fc.name for fc in function_calls]
+            logger.info(f"[falsifier] Turn {turn}: calling {names}")
+
             function_response_parts = []
             for fc in function_calls:
                 result = await _dispatch_tool(fc.name, dict(fc.args or {}))
+                logger.debug(
+                    f"[falsifier] {fc.name} → "
+                    f"\n{result[:400]}\n{'...' if len(result) > 400 else ''}"
+                )
                 function_response_parts.append(
                     types.Part(
                         function_response=types.FunctionResponse(
@@ -410,52 +424,42 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
             history.append(
                 types.Content(role="user", parts=function_response_parts)
             )
-            continue  # next turn
+            continue
 
-        # No function calls — check if model has a verdict
+        # --- Check for verdict in text ---
         has_verdict = any(
             marker in full_text.lower()
             for marker in ["verdict: corroborated", "verdict: falsified",
-                           "verdict: insufficient", "verdict:**"]
+                           "verdict: insufficient"]
         )
 
         if has_verdict:
-            logger.info(f"[falsifier] Turn {turn}: ✅ verdict reached")
+            logger.info(f"[falsifier] Turn {turn}: ✅ verdict")
             return _parse_verdict(full_text, hypothesis)
 
         if has_code_execution:
-            # Model ran code but hasn't given a verdict yet.
-            # It might need another turn to reason about the results.
-            # Send a nudge to produce the verdict.
             logger.info(f"[falsifier] Turn {turn}: code ran, nudging for verdict")
             history.append(
                 types.Content(
                     role="user",
-                    parts=[types.Part(
-                        text="Code execution complete. Now deliver your VERDICT block."
-                    )],
+                    parts=[types.Part(text="Now output your VERDICT.")],
                 )
             )
             continue
 
-        # Text without verdict and no tools — model might be thinking out loud
-        # Give it one more chance
         if full_text:
             logger.info(f"[falsifier] Turn {turn}: text without verdict, nudging")
             history.append(
                 types.Content(
                     role="user",
-                    parts=[types.Part(text="Now output your final VERDICT block.")],
+                    parts=[types.Part(text="Output your VERDICT now.")],
                 )
             )
             continue
 
-        # Empty response — bail
-        logger.warning(f"[falsifier] Turn {turn}: empty response, stopping")
         break
 
-    # Loop exhausted
-    # Try to parse whatever text we accumulated
+    # Try to salvage a verdict from accumulated text
     all_text = " ".join(
         p.text for c in history if c.role == "model"
         for p in c.parts if p.text
@@ -463,11 +467,11 @@ async def falsify_hypothesis(hypothesis: dict) -> FalsificationVerdict:
     if all_text and "verdict:" in all_text.lower():
         return _parse_verdict(all_text, hypothesis)
 
-    logger.warning(f"[falsifier] Max turns ({MAX_FALSIFIER_TURNS}) reached: '{h_desc[:60]}'")
+    logger.warning(f"[falsifier] Max turns ({MAX_FALSIFIER_TURNS}): '{h_desc[:60]}'")
     return FalsificationVerdict(
         hypothesis_id=h_desc[:80],
         verdict="INSUFFICIENT_EVIDENCE",
-        reasoning=f"Falsification loop exhausted after {MAX_FALSIFIER_TURNS} turns.",
+        reasoning=f"Loop exhausted after {MAX_FALSIFIER_TURNS} turns without verdict.",
         confidence=0.0,
     )
 
@@ -481,9 +485,9 @@ def _parse_verdict(agent_output: str, hypothesis: dict) -> FalsificationVerdict:
     text = str(agent_output)
     lower = text.lower()
 
-    if "verdict: falsified" in lower:
+    if "verdict: falsified" in lower or "verdict:**falsified" in lower:
         verdict = "FALSIFIED"
-    elif "verdict: corroborated" in lower:
+    elif "verdict: corroborated" in lower or "verdict:**corroborated" in lower:
         verdict = "CORROBORATED"
     else:
         verdict = "INSUFFICIENT_EVIDENCE"
@@ -502,7 +506,7 @@ def _parse_verdict(agent_output: str, hypothesis: dict) -> FalsificationVerdict:
     if "CONFIDENCE:" in text:
         try:
             conf_str = text.split("CONFIDENCE:")[-1].strip().split()[0]
-            confidence = float(conf_str.strip(".,:"))
+            confidence = float(conf_str.strip(".,: "))
             if confidence > 1:
                 confidence /= 100
         except (ValueError, IndexError):
@@ -518,17 +522,14 @@ def _parse_verdict(agent_output: str, hypothesis: dict) -> FalsificationVerdict:
 
 
 # ---------------------------------------------------------------------------
-# Main Node
+# Main Node (LangGraph integration)
 # ---------------------------------------------------------------------------
 
 
 async def falsifier_node(state: dict) -> dict:
     """
-    Epistemic Falsifier node: spawns a Popperian falsification loop
-    for each hypothesis, using native Gemini SDK with tool combination
-    (function calling + code_execution).
-
-    Runs all hypotheses in parallel.
+    Epistemic Falsifier node: runs Popperian falsification for each hypothesis.
+    Hypotheses processed in parallel.
     """
     hypotheses = state.get("hypotheses", [])
 
@@ -536,7 +537,7 @@ async def falsifier_node(state: dict) -> dict:
         logger.info("[falsifier] No hypotheses to falsify")
         return {"falsifier_verdicts": []}
 
-    logger.info(f"[falsifier] Spawning {len(hypotheses)} falsification loops (parallel)...")
+    logger.info(f"[falsifier] Spawning {len(hypotheses)} loops (parallel)...")
 
     tasks = [falsify_hypothesis(h) for h in hypotheses]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -544,7 +545,7 @@ async def falsifier_node(state: dict) -> dict:
     verdicts = []
     for r in results:
         if isinstance(r, Exception):
-            logger.error(f"[falsifier] Coroutine exception: {r}")
+            logger.error(f"[falsifier] Exception: {r}")
             verdicts.append(FalsificationVerdict(
                 hypothesis_id="unknown",
                 verdict="INSUFFICIENT_EVIDENCE",
@@ -561,7 +562,7 @@ async def falsifier_node(state: dict) -> dict:
     logger.info(
         f"[falsifier] ✅ {corroborated} corroborated | "
         f"❌ {falsified} falsified | "
-        f"⚠️ {insufficient} insufficient_evidence"
+        f"⚠️ {insufficient} insufficient"
     )
 
     return {"falsifier_verdicts": verdicts}

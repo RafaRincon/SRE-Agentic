@@ -4,13 +4,13 @@ from __future__ import annotations
 SRE Agent — Gemini LLM Provider (Facade)
 
 Centralized facade for all LLM interactions.
-Uses the google-genai SDK (NOT the deprecated google-generativeai).
+Uses the google-genai SDK directly against the Gemini API.
 
 Key design decisions:
 - Single client instance (singleton) for connection reuse
 - All calls go through this facade for telemetry injection
 - Structured outputs via Pydantic schemas
-- Embeddings via gemini-embedding-2-preview with MRL (768 dims)
+- Embeddings via gemini-embedding-001 (768 dims, MRL)
 """
 
 from google import genai
@@ -30,15 +30,11 @@ _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
-    """Return a cached Gemini client configured for Vertex AI Express Mode."""
+    """Return a cached Gemini API client (direct, no Vertex)."""
     global _client
     if _client is None:
         settings = get_settings()
-        # Ensure we use vertexai=True to hit Vertex AI Express via API key for higher rate limits
-        _client = genai.Client(
-            vertexai=True,
-            api_key=settings.gemini_api_key
-        )
+        _client = genai.Client(api_key=settings.gemini_api_key)
     return _client
 
 
@@ -57,7 +53,10 @@ async def generate_text(
     settings = get_settings()
     client = _get_client()
 
-    config = types.GenerateContentConfig()
+    config = types.GenerateContentConfig(
+        temperature=1,
+        thinking_config=types.ThinkingConfig(thinking_level="MEDIUM"),
+    )
     if system_instruction:
         config.system_instruction = system_instruction
 
@@ -91,6 +90,8 @@ async def generate_structured(
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=response_schema,
+        temperature=1,
+        thinking_config=types.ThinkingConfig(thinking_level="MEDIUM"),
     )
     if system_instruction:
         config.system_instruction = system_instruction
@@ -133,7 +134,10 @@ async def generate_multimodal(
         )
     contents.append(text_prompt)
 
-    config = types.GenerateContentConfig()
+    config = types.GenerateContentConfig(
+        temperature=1,
+        thinking_config=types.ThinkingConfig(thinking_level="MEDIUM"),
+    )
     if system_instruction:
         config.system_instruction = system_instruction
     if response_schema:
