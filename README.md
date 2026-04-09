@@ -63,8 +63,8 @@ This agent pioneers a **Dual-Track architecture** inspired by neuroscience's dua
                 └──────────────────┬───────────────────┘
                                    │
                 ┌──────────────────▼───────────────────┐
-                │        CREATE MOCK TICKET            │
-                │          → NOTIFY ON-CALL            │
+                │         CREATE INCIDENT RECORD       │
+                │           → ROUTE OWNERSHIP          │
                 └──────────────────────────────────────┘
 ```
 
@@ -138,17 +138,15 @@ curl -X POST http://localhost:8000/incident \
 | `POST` | `/incident` | Main intake endpoint. Accepts multipart form data with `report` plus optional uploaded `image`. |
 | `GET` | `/incident/{id}` | Read mathematical Severity and FSM status. |
 | `GET` | `/incident/{id}/ledger` | Read the immutable audit trail of the investigation flow (admin API key required). |
-| `POST` | `/incident/{id}/resolve` | Close incident, triggering mocked outbound reporter notification flow (admin API key required). |
+| `POST` | `/incident/{id}/resolve` | Close incident, record resolution notes, and persist reporter follow-up metadata (admin API key required). |
 
 ---
 
 ## 📑 Detailed Documentation Available
-For highly specific enterprise documentation per Hackathon Requirements, please review:
+For additional architecture and operational detail, please review:
 - **[AGENTS_USE.md]**: Deep dive into LangGraph, Falsification Tracks, and Agent Constraints.
 - **[SCALING.md]**: Details on Docker Workers, Rate Limiting defense, Cosmos DB Sharding, and DiskANN optimizations.
 - **[QUICKGUIDE.md]**: A step-by-step test lab tutorial.
-
-Note: ticket creation, team notification, and reporter notification are mocked in this hackathon build so the full flow is demoable without external SaaS credentials.
 
 ## 📄 License
 MIT — see [LICENSE](LICENSE)

@@ -1,6 +1,6 @@
 # Neuro-Symbolic Agent Quick Guide
 
-Follow these sequential steps to run, test, and audit the SRE Agent locally. This guide will walk you through setting up the environment, compiling the stack, triggering an incident, and observing the "Glass Box" features (Anti-Alucination and Deduplication).
+Follow these sequential steps to run, test, and audit the SRE Agent locally. This guide will walk you through setting up the environment, compiling the stack, triggering an incident, and inspecting the grounded triage flow and deduplication behavior.
 
 ---
 
@@ -49,7 +49,7 @@ curl -X POST http://localhost:8000/incident \
 ```
 *Note the returned `{"incident_id": "xxxx"}`.*
 
-### Phase 4.2: Audit the Ledger (Glass Box)
+### Phase 4.2: Audit the Ledger
 Instead of waiting blindly, check the AI's internal reasoning. Watch how the `Span Arbiter` forces code citations or drops hallucinated text.
 ```bash
 curl http://localhost:8000/incident/{incident_id}/ledger \
@@ -68,7 +68,7 @@ You will notice the response takes under **100ms**. The Agent successfully caugh
 ---
 
 ## Step 5: Incident Resolution
-Once the issue is tracked and fixed, the SRE team can close the ticket. In this hackathon build, ticketing and notifications are mocked but the end-to-end flow is fully demoable.
+Once the issue is tracked and fixed, the SRE team can close the incident and persist the final resolution context.
 ```bash
 curl -X POST http://localhost:8000/incident/{incident_id}/resolve \
   -H "X-Admin-Api-Key: $APP_ADMIN_API_KEY"

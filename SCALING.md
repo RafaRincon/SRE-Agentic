@@ -8,7 +8,7 @@ The application is built around a stateless unified backend:
 - **Google Gemini API:** Provides the generative compute (Flash for fast parsing, Pro for epistemic falsification).
 
 **Scaling Strategy:** 
-The current hackathon setup ships as a single-container Docker Compose deployment. The backend is intentionally stateless, so it can be scaled horizontally in a fuller deployment by adding FastAPI replicas behind a load balancer while keeping orchestration state in Cosmos DB checkpointers.
+The current local setup ships as a single-container Docker Compose deployment. The backend is intentionally stateless, so it can be scaled horizontally in a fuller deployment by adding FastAPI replicas behind a load balancer while keeping orchestration state in Cosmos DB checkpointers.
 
 ## 2. Database Scaling (Cosmos DB over Alternatives)
 

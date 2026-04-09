@@ -426,7 +426,7 @@ async def resolve_incident(
     resolution_notes: str = Form(""),
 ):
     """
-    Mark an incident as resolved and notify the reporter.
+    Mark an incident as resolved and record the reporter follow-up.
     """
     incident = db_provider.get_incident(incident_id)
     if not incident:
@@ -445,11 +445,18 @@ async def resolve_incident(
 
     notifications = incident.get("notifications", {})
     notifications["reporter_notified"] = True
-    notifications["reporter_notification_channel"] = "email:reporter@example.com"
+    reporter_email = (
+        incident.get("entities", {}).get("reporter_email")
+        or incident.get("reporter_email")
+        or ""
+    )
+    notifications["reporter_notification_channel"] = (
+        f"reporter:{reporter_email}" if reporter_email else "reporter:unavailable"
+    )
     incident["notifications"] = notifications
     incident["status"] = IncidentStatus.REPORTER_NOTIFIED.value
 
-    logger.info("Reporter notified for incident %s", incident_id)
+    logger.info("Reporter follow-up recorded for incident %s", incident_id)
     db_provider.upsert_incident(incident)
 
     knowledge_stats = None
@@ -470,7 +477,7 @@ async def resolve_incident(
     return {
         "incident_id": incident_id,
         "status": incident["status"],
-        "message": "Incident resolved and reporter notified.",
+        "message": "Incident resolved and reporter follow-up recorded.",
         "knowledge_indexed": knowledge_stats is not None,
         "knowledge_stats": knowledge_stats,
     }

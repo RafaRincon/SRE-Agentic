@@ -354,6 +354,7 @@ def test_resolve_incident_success(monkeypatch, admin_headers):
     assert payload["knowledge_indexed"] is True
     assert stored[0]["resolution_notes"] == "Added null guard"
     assert stored[0]["notifications"]["reporter_notified"] is True
+    assert stored[0]["notifications"]["reporter_notification_channel"] == "reporter:unavailable"
 
 
 def test_resolve_incident_requires_admin_key():

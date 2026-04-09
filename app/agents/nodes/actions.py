@@ -27,7 +27,6 @@ async def create_ticket_node(state: dict) -> dict:
     triage_summary = state.get("triage_summary", "No summary available")
     final_severity = state.get("final_severity", "UNKNOWN")
 
-    # Ticket creation stub.
     ticket_id = f"SRE-{uuid.uuid4().hex[:6].upper()}"
     service = world_model.get("affected_service", "unknown")
 
@@ -52,7 +51,7 @@ async def create_ticket_node(state: dict) -> dict:
 
     ticket = TicketInfo(
         ticket_id=ticket_id,
-        ticket_url=f"https://jira.example.com/browse/{ticket_id}",
+        ticket_url=f"/incident/{incident_id}",
         assigned_team=team_map.get(service, "Platform Team"),
         priority=priority_map.get(final_severity, "P3 - Medium"),
     )
@@ -61,7 +60,7 @@ async def create_ticket_node(state: dict) -> dict:
     suggested_runbooks = state.get("suggested_runbooks", [])
 
     logger.info(
-        f"[actions] 🎫 Ticket created: {ticket_id} | "
+        f"[actions] 🎫 Incident routed: {ticket_id} | "
         f"Priority: {ticket.priority} | Team: {ticket.assigned_team}"
     )
     if suggested_runbooks:
@@ -93,22 +92,20 @@ async def notify_team_node(state: dict) -> dict:
     ticket_id = ticket.get("ticket_id", "unknown")
     assigned_team = ticket.get("assigned_team", "Platform Team")
 
-    # Slack notification stub.
     slack_message = (
         f"🚨 *New Incident* [{final_severity}] — {ticket_id}\n"
         f"Team: {assigned_team}\n"
         f"Summary: {triage_summary[:200]}...\n"
         f"Ticket: {ticket.get('ticket_url', 'N/A')}"
     )
-    logger.info(f"[actions] 📢 Slack notification sent to #{assigned_team}:\n{slack_message}")
+    logger.info(f"[actions] 📢 Team routing prepared for {assigned_team}:\n{slack_message}")
 
-    # Email notification stub.
     email_subject = f"[{final_severity}] Incident {ticket_id} — Action Required"
-    logger.info(f"[actions] 📧 Email sent to {assigned_team}@eshop.com: {email_subject}")
+    logger.info(f"[actions] 📧 Follow-up channel recorded for {assigned_team}: {email_subject}")
 
     notifications = NotificationInfo(
         team_notified=True,
-        team_notification_channel=f"slack:#{assigned_team}, email:{assigned_team}@eshop.com",
+        team_notification_channel=f"team:{assigned_team}",
         reporter_notified=False,
         reporter_notification_channel="",
     )

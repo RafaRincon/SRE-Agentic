@@ -51,7 +51,7 @@ class ExpandedQueries(BaseModel):
         description="Search query focused on inter-service dependencies, event bus, and integration points"
     )
     hypothetical_code_query: str = Field(
-        description="HyDE (Hypothetical Document Embeddings): Write a fake snippet of code that would perfectly cause this exact failure, to find structurally similar code."
+        description="HyDE (Hypothetical Document Embeddings): Write a hypothetical snippet of code that would perfectly cause this exact failure, to find structurally similar code."
     )
 
 
