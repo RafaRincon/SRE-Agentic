@@ -14,7 +14,13 @@ The Span Arbiter (next node) double-checks all citations.
 
 import logging
 from pydantic import BaseModel, Field
-from app.agents.state import RiskHypothesis
+from app.agents.state import (
+    EpistemicStatus,
+    RiskHypothesis,
+    make_epistemic_claim,
+    merge_epistemic_snapshots,
+    snapshot_is_empty,
+)
 from app.providers import llm_provider, db_provider
 from app.ledger.audit import record_hypothesis
 
@@ -50,34 +56,57 @@ class HypothesesOutput(BaseModel):
     )
 
 
-EXPANSION_SYSTEM = """You are a query expansion engine for an SRE code search system.
-Given an incident report, generate 4 DIFFERENT search queries that would help find
-the relevant source code in a .NET eShop microservices repository.
+def _build_hypothesis_snapshot(hypothesis: RiskHypothesis):
+    observed = []
+    inferred = []
+    unknown = []
 
-Each query should approach the problem from a different angle:
-- error_query: Focus on the exception type, error message, HTTP status code
-- service_query: Focus on the service name, controller, handler, or endpoint
-- pattern_query: Focus on code patterns that commonly cause this failure
-- dependency_query: Focus on service dependencies, event bus, DI registration
+    if hypothesis.exact_span:
+        observed.append(
+            make_epistemic_claim(
+                label=f"exact_span={hypothesis.exact_span[:120]}",
+                status=EpistemicStatus.OBSERVED,
+                evidence=hypothesis.exact_span,
+                source="risk_hypothesizer",
+            )
+        )
 
-Keep queries concise (10-30 words) and use .NET/C# terminology."""
+    if hypothesis.suspected_file:
+        observed.append(
+            make_epistemic_claim(
+                label=f"suspected_file={hypothesis.suspected_file}",
+                status=EpistemicStatus.OBSERVED,
+                evidence=hypothesis.suspected_file,
+                source="risk_hypothesizer",
+            )
+        )
+
+    inferred.append(
+        make_epistemic_claim(
+            label=hypothesis.description,
+            status=EpistemicStatus.INFERRED,
+            evidence="Causal interpretation grounded in the retrieved code span.",
+            source="risk_hypothesizer",
+        )
+    )
+
+    unknown.append(
+        make_epistemic_claim(
+            label="upstream_validation_or_wiring",
+            status=EpistemicStatus.UNKNOWN,
+            evidence=(
+                "The retrieved code does not prove whether upstream validation, "
+                "dependency wiring, or environment-specific config blocks this path."
+            ),
+            source="risk_hypothesizer",
+        )
+    )
+
+    return merge_epistemic_snapshots(
+        {"observed": observed, "inferred": inferred, "unknown": unknown}
+    )
 
 
-HYPOTHESIS_SYSTEM = """You are a PARANOID SRE investigator analyzing an incident in the eShop .NET e-commerce application.
-
-You have been given REAL CODE CHUNKS retrieved from the eShop repository.
-You MUST base your hypotheses ONLY on the code provided below.
-
-CRITICAL RULES:
-1. Each hypothesis MUST include an `exact_span` — a VERBATIM quote copied from the CODE CHUNKS provided. Do NOT invent code.
-2. The `suspected_file` MUST match the `file_path` from the code chunks.
-3. The `suspected_function` should be the method or function name visible in the code chunks.
-4. Be PARANOID — generate multiple hypotheses covering different failure modes.
-5. Your confidence should reflect how certain you are (0.0 to 1.0).
-6. If the code chunks don't seem relevant, say so and assign low confidence.
-
-Generate 2-4 hypotheses, ordered by confidence (highest first).
-Each hypothesis MUST have an exact_span COPIED from the real code or it will be DISCARDED."""
 
 
 # ---------------------------------------------------------------------------
@@ -97,11 +126,13 @@ Error: {entities.get('error_code', '')} {entities.get('error_message', '')}
 Endpoint: {entities.get('endpoint_affected', '')}
 Stack: {entities.get('stack_trace', '')[:200]}"""
 
+    from app.agents.prompts import RISK_EXPANSION_SYSTEM, build_risk_expansion_prompt
+    
     try:
         expanded = await llm_provider.generate_structured(
-            prompt=f"Generate search queries for this SRE incident:\n\n{context}",
+            prompt=build_risk_expansion_prompt(context),
             response_schema=ExpandedQueries,
-            system_instruction=EXPANSION_SYSTEM,
+            system_instruction=RISK_EXPANSION_SYSTEM,
         )
 
         queries = [
@@ -299,38 +330,25 @@ async def risk_hypothesizer_node(state: dict) -> dict:
         recurrence_count = 0
 
     # --- Step 4: Generate hypotheses grounded in real code + history ---
-    prompt = f"""Based on this incident report, the REAL CODE from the eShop repository, and any HISTORICAL INCIDENTS, generate root cause hypotheses.
+    from app.agents.prompts import RISK_HYPOTHESIS_SYSTEM, build_risk_hypothesis_prompt
 
---- INCIDENT REPORT ---
-{raw_report}
---- END REPORT ---
-
---- INCIDENT CONTEXT ---
-Service: {world_model.get('affected_service', 'unknown')}
-Category: {world_model.get('incident_category', 'unknown')}
-Error: {entities.get('error_code', 'N/A')} — {entities.get('error_message', 'N/A')}
-Endpoint: {entities.get('endpoint_affected', 'N/A')}
---- END CONTEXT ---
-
---- REAL CODE FROM ESHOP REPOSITORY ({len(retrieved_chunks)} chunks retrieved via {len(expanded_queries)} search queries) ---
-{code_context}
---- END CODE ---
-
---- HISTORICAL INCIDENTS ({len(historical_chunks)} past incidents found, {recurrence_count} highly similar) ---
-{history_context}
---- END HISTORY ---
-
-IMPORTANT:
-1. Your `exact_span` for each hypothesis MUST be a verbatim copy from the CODE above.
-2. If similar past incidents exist, reference them and BOOST your confidence for recurring patterns.
-3. If this appears to be a RECURRING issue, flag it explicitly in your hypothesis description.
-Generate 2-4 hypotheses grounded in the real code."""
+    prompt = build_risk_hypothesis_prompt(
+        raw_report=raw_report,
+        world_model=world_model,
+        entities=entities,
+        code_context=code_context,
+        history_context=history_context,
+        retrieved_chunks_len=len(retrieved_chunks),
+        expanded_queries_len=len(expanded_queries),
+        historical_chunks_len=len(historical_chunks),
+        recurrence_count=recurrence_count
+    )
 
     try:
         result = await llm_provider.generate_structured(
             prompt=prompt,
             response_schema=HypothesesOutput,
-            system_instruction=HYPOTHESIS_SYSTEM,
+            system_instruction=RISK_HYPOTHESIS_SYSTEM,
         )
 
         # Filter out hypotheses without spans
@@ -338,6 +356,10 @@ Generate 2-4 hypotheses grounded in the real code."""
             h for h in result.hypotheses
             if h.exact_span and len(h.exact_span.strip()) > 5
         ]
+
+        for hypothesis in valid_hypotheses:
+            if snapshot_is_empty(hypothesis.epistemic_snapshot):
+                hypothesis.epistemic_snapshot = _build_hypothesis_snapshot(hypothesis)
 
         logger.info(
             f"[risk_hypothesizer] Generated {len(result.hypotheses)} hypotheses, "

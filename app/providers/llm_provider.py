@@ -30,11 +30,15 @@ _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
-    """Return a cached Gemini client."""
+    """Return a cached Gemini client configured for Vertex AI Express Mode."""
     global _client
     if _client is None:
         settings = get_settings()
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        # Ensure we use vertexai=True to hit Vertex AI Express via API key for higher rate limits
+        _client = genai.Client(
+            vertexai=True,
+            api_key=settings.gemini_api_key
+        )
     return _client
 
 

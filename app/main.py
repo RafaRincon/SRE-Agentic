@@ -169,6 +169,7 @@ async def submit_incident(
         "span_verdicts": [],
         "falsifier_verdicts": [],
         "verified_root_causes": [],
+        "epistemic_context": {},
         "suggested_runbooks": [],
         "errors": [],
     }
@@ -320,6 +321,18 @@ async def get_incident(incident_id: str):
     incident = db_provider.get_incident(incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
+
+    incident = {
+        key: value
+        for key, value in incident.items()
+        if key != "epistemic_context"
+    }
+    if isinstance(incident.get("ticket"), dict):
+        incident["ticket"] = {
+            key: value
+            for key, value in incident["ticket"].items()
+            if key != "epistemic_context"
+        }
 
     # Enrich with last checkpoint state (non-blocking — skips if unavailable)
     try:

@@ -263,6 +263,32 @@ async def test_e2e_span_pipeline_is_grounded_and_deterministic(monkeypatch):
                     suspected_function="Handle",
                     exact_span="throw new NullReferenceException();",
                     confidence=0.91,
+                    epistemic_snapshot={
+                        "observed": [
+                            {
+                                "label": "exact_span=throw new NullReferenceException();",
+                                "status": "OBSERVED",
+                                "evidence": "throw new NullReferenceException();",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "inferred": [
+                            {
+                                "label": "Missing null guard causes checkout failure",
+                                "status": "INFERRED",
+                                "evidence": "Derived from the retrieved code path.",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "unknown": [
+                            {
+                                "label": "upstream_validation_or_wiring",
+                                "status": "UNKNOWN",
+                                "evidence": "Bootstrap and upstream validation were not inspected in this test.",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                    },
                 ),
                 RiskHypothesis(
                     hypothesis_id="h-hallucinated",
@@ -304,6 +330,7 @@ async def test_e2e_span_pipeline_is_grounded_and_deterministic(monkeypatch):
         "h-verified",
         "h-hallucinated",
     ]
+    assert result["hypotheses"][0].epistemic_snapshot.unknown[0].label == "upstream_validation_or_wiring"
     assert result["verdicts"][0] == {
         "hypothesis_id": "h-verified",
         "verdict": "VERIFIED",

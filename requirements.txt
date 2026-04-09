@@ -14,7 +14,8 @@ azure-identity
 
 # === LangGraph ===
 langgraph
-
+langchain
+langchain-google-genai
 langgraph-checkpoint-cosmosdb
 
 # === Indexer ===

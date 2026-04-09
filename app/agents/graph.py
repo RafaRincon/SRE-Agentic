@@ -6,8 +6,12 @@ SRE Agent — LangGraph Definition
 Assembles the complete Dual-Track Neuro-Symbolic pipeline:
 
 Track A (Neuronal):  intake → world_model → slot_filler
-Track B (Adversarial): intake → risk_hypothesizer → span_arbiter
+Track B (Adversarial): intake → risk_hypothesizer → span_arbiter → falsifier
 Merge:               consolidator → create_ticket → notify_team
+
+The Falsifier implements Popperian epistemology: each hypothesis gets
+its own agent (via create_agent) with RAG tools that actively tries to
+falsify it. Only corroborated hypotheses survive to the consolidator.
 
 Conditional edges based on FSM state flags, never LLM decisions.
 
@@ -27,6 +31,7 @@ from app.agents.nodes.world_model import world_model_node
 from app.agents.nodes.slot_filler import slot_filler_node
 from app.agents.nodes.risk_hypothesizer import risk_hypothesizer_node
 from app.agents.nodes.span_arbiter import span_arbiter_node
+from app.agents.nodes.falsifier import falsifier_node
 from app.agents.nodes.consolidator import consolidator_node
 from app.agents.nodes.actions import create_ticket_node, notify_team_node
 
@@ -78,6 +83,7 @@ class GraphState(TypedDict, total=False):
     triage_summary: str
     final_severity: str
     verified_root_causes: Annotated[list, merge_lists]
+    epistemic_context: dict
 
     # Historical correlation (flywheel)
     historical_context: dict
@@ -116,6 +122,7 @@ def build_graph(checkpointer=None):
     builder.add_node("n_slot_filler", slot_filler_node)
     builder.add_node("n_risk_hypothesizer", risk_hypothesizer_node)
     builder.add_node("n_span_arbiter", span_arbiter_node)
+    builder.add_node("n_falsifier", falsifier_node)
     builder.add_node("n_consolidator", consolidator_node)
     builder.add_node("n_create_ticket", create_ticket_node)
     builder.add_node("n_notify_team", notify_team_node)
@@ -130,12 +137,13 @@ def build_graph(checkpointer=None):
     # Track A chain
     builder.add_edge("n_world_model", "n_slot_filler")
 
-    # Track B chain
+    # Track B chain: hypothesizer → span arbiter → Popperian falsifier
     builder.add_edge("n_risk_hypothesizer", "n_span_arbiter")
+    builder.add_edge("n_span_arbiter", "n_falsifier")
 
     # Fan-in: both tracks merge at consolidator
     builder.add_edge("n_slot_filler", "n_consolidator")
-    builder.add_edge("n_span_arbiter", "n_consolidator")
+    builder.add_edge("n_falsifier", "n_consolidator")
 
     # Post-consolidation
     builder.add_edge("n_consolidator", "n_create_ticket")

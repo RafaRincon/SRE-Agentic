@@ -27,8 +27,10 @@ class Settings(BaseSettings):
     # --- Google Gemini ---
     gemini_api_key: str
     gemini_model: str = "gemini-3-flash-preview"
-    gemini_embedding_model: str = "gemini-embedding-2-preview"
-    gemini_embedding_dimensions: int = 768
+    # gemini-embedding-001: works in Vertex AI Express Mode (api_key auth)
+    # gemini-embedding-2-preview: requires full Vertex AI (project + location), NOT express mode
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dimensions: int = 768  # keep 768 to match already-indexed chunks
 
     # --- Observability (Langfuse) ---
     langfuse_public_key: str = ""

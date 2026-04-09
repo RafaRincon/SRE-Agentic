@@ -47,6 +47,80 @@ class EpistemicStatus(str, Enum):
     UNKNOWN = "UNKNOWN"        # Missing, needs investigation
 
 
+class EpistemicClaim(BaseModel):
+    """A single epistemic claim with explicit evidence provenance."""
+    label: str = Field(description="Short statement or field name being classified")
+    status: EpistemicStatus
+    evidence: str = Field(default="", description="Direct evidence or rationale for the classification")
+    source: str = Field(default="", description="Where this claim came from (report, code, falsifier, etc.)")
+
+
+class EpistemicSnapshot(BaseModel):
+    """Immutable snapshot of what is observed, inferred, and unknown at a given stage."""
+    observed: list[EpistemicClaim] = Field(default_factory=list)
+    inferred: list[EpistemicClaim] = Field(default_factory=list)
+    unknown: list[EpistemicClaim] = Field(default_factory=list)
+
+
+def make_epistemic_claim(
+    label: str,
+    status: EpistemicStatus,
+    *,
+    evidence: str = "",
+    source: str = "",
+) -> EpistemicClaim:
+    return EpistemicClaim(
+        label=label,
+        status=status,
+        evidence=evidence,
+        source=source,
+    )
+
+
+def empty_epistemic_snapshot() -> EpistemicSnapshot:
+    return EpistemicSnapshot()
+
+
+def ensure_epistemic_snapshot(snapshot: EpistemicSnapshot | dict | None) -> EpistemicSnapshot:
+    if snapshot is None:
+        return EpistemicSnapshot()
+    if isinstance(snapshot, EpistemicSnapshot):
+        return snapshot
+    return EpistemicSnapshot.model_validate(snapshot)
+
+
+def snapshot_is_empty(snapshot: EpistemicSnapshot | dict | None) -> bool:
+    normalized = ensure_epistemic_snapshot(snapshot)
+    return not (normalized.observed or normalized.inferred or normalized.unknown)
+
+
+def merge_epistemic_snapshots(
+    *snapshots: EpistemicSnapshot | dict | None,
+) -> EpistemicSnapshot:
+    """Merge snapshots without mutating any upstream stage output."""
+    merged = EpistemicSnapshot()
+    seen: set[tuple[str, str, str, str]] = set()
+
+    for snapshot in snapshots:
+        normalized = ensure_epistemic_snapshot(snapshot)
+        for bucket_name in ("observed", "inferred", "unknown"):
+            bucket = getattr(normalized, bucket_name)
+            target = getattr(merged, bucket_name)
+            for claim in bucket:
+                key = (
+                    claim.label,
+                    claim.status.value,
+                    claim.evidence,
+                    claim.source,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                target.append(claim.model_copy(deep=True))
+
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Sub-models (populated by Track A nodes)
 # ---------------------------------------------------------------------------
@@ -61,6 +135,7 @@ class WorldModelProjection(BaseModel):
     severity_rationale: str = Field(default="", description="Why this severity was assigned")
     incident_category: str = Field(default="", description="e.g., 'RuntimeException', 'Timeout', 'DataCorruption'")
     temporal_context: str = Field(default="", description="When did this start? Is it ongoing?")
+    epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 class ExtractedEntity(BaseModel):
@@ -73,6 +148,7 @@ class ExtractedEntity(BaseModel):
     reporter_name: str = ""
     reporter_email: str = ""
     timestamp_reported: str = ""
+    epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +164,7 @@ class RiskHypothesis(BaseModel):
     suspected_function: str = Field(default="", description="Function or method name")
     exact_span: str = Field(description="EXACT quote from the code/log that supports this hypothesis")
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 class SpanVerdict(BaseModel):
@@ -98,6 +175,8 @@ class SpanVerdict(BaseModel):
     matched_line: Optional[int] = None
     similarity_score: float = 0.0
     verdict: str = Field(default="UNVERIFIED", description="VERIFIED | HALLUCINATION | PARTIAL_MATCH")
+    hypothesis_epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
+    epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 class FalsifierVerdict(BaseModel):
@@ -107,6 +186,12 @@ class FalsifierVerdict(BaseModel):
     passed: bool
     evidence: str = Field(default="", description="Evidence supporting the verdict")
     verdict: str = Field(default="UNFALSIFIED", description="SURVIVED | FALSIFIED | INCONCLUSIVE")
+    reasoning: str = ""
+    counter_evidence: list[str] = Field(default_factory=list)
+    supporting_evidence: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    hypothesis_epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
+    epistemic_snapshot: EpistemicSnapshot = Field(default_factory=EpistemicSnapshot)
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +251,7 @@ class IncidentState(BaseModel):
     triage_summary: str = Field(default="", description="Final technical summary after consolidation")
     final_severity: Severity = Severity.UNKNOWN
     verified_root_causes: list[str] = Field(default_factory=list, description="Hypotheses that survived both arbiter and falsifier")
+    epistemic_context: dict = Field(default_factory=dict, description="Final immutable IOU context exposed downstream")
 
     # --- Actions ---
     ticket: Optional[TicketInfo] = None

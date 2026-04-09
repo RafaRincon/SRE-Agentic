@@ -305,6 +305,26 @@ def test_extract_tags_and_reasoning_trace():
                     "description": "Missing null guard",
                     "suspected_file": "OrdersController.cs",
                     "confidence": 0.9,
+                    "epistemic_snapshot": {
+                        "observed": [{"label": "exact_span=throw ...", "evidence": "throw ..."}],
+                        "inferred": [{"label": "Missing null guard", "evidence": "causal claim"}],
+                        "unknown": [{"label": "upstream_validation_or_wiring", "evidence": "not indexed"}],
+                    },
+                },
+            },
+            {
+                "timestamp": "2026-04-08T12:02:00+00:00",
+                "event_type": "FALSIFIER_VERDICT",
+                "node_name": "falsifier",
+                "data": {
+                    "verdict": "CORROBORATED",
+                    "axiom_tested": "PRIMARY_PATH",
+                    "confidence": 0.8,
+                    "epistemic_snapshot": {
+                        "observed": [{"label": "supporting_evidence", "evidence": "No guard before dereference"}],
+                        "inferred": [{"label": "verdict=CORROBORATED", "evidence": "No counter evidence found"}],
+                        "unknown": [],
+                    },
                 },
             },
         ],
@@ -312,6 +332,8 @@ def test_extract_tags_and_reasoning_trace():
 
     assert "REASONING TRACE" in trace
     assert "Missing null guard" in trace
+    assert "Observed:" in trace
+    assert "FALSIFIER" in trace
 
 
 def test_compute_mttr_and_temporal_decay():
@@ -359,6 +381,11 @@ def test_build_resolution_chunks_creates_expected_roles():
             "incident_category": "RuntimeException",
             "blast_radius": ["WebApp"],
         },
+        "epistemic_context": {
+            "observed": [{"label": "error_code=500", "evidence": "500"}],
+            "inferred": [{"label": "Missing null guard", "evidence": "Causal interpretation"}],
+            "unknown": [{"label": "upstream_validation_or_wiring", "evidence": "not indexed"}],
+        },
     }
     ledger_entries = [
         {
@@ -387,6 +414,7 @@ def test_build_resolution_chunks_creates_expected_roles():
 
     assert roles == ["symptom", "root_cause", "resolution", "reasoning_trace"]
     assert any("verified spans" in chunk["chunk_text"] for chunk in chunks)
+    assert any("Epistemic Context:" in chunk["chunk_text"] for chunk in chunks)
 
 
 @pytest.mark.asyncio
