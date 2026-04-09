@@ -10,12 +10,65 @@ If found → the hypothesis advances to the Epistemic Falsifier.
 """
 
 import logging
-from app.agents.state import SpanVerdict
+from app.agents.state import (
+    EpistemicStatus,
+    SpanVerdict,
+    ensure_epistemic_snapshot,
+    make_epistemic_claim,
+    merge_epistemic_snapshots,
+)
 from app.symbolic.span_matcher import fuzzy_match_span
 from app.providers import llm_provider, db_provider
-from app.ledger.audit import record_verdict, record_state_transition
+from app.ledger.audit import record_verdict
 
 logger = logging.getLogger(__name__)
+
+
+def _build_span_epistemic_snapshot(
+    hypothesis_id: str,
+    verdict: str,
+    matched_file: str | None,
+    matched_line: int | None,
+    similarity_score: float,
+):
+    observed = []
+    inferred = []
+    unknown = []
+
+    if matched_file:
+        observed.append(
+            make_epistemic_claim(
+                label=f"span_match={hypothesis_id}",
+                status=EpistemicStatus.OBSERVED,
+                evidence=(
+                    f"Matched in {matched_file}"
+                    f"{f' line {matched_line}' if matched_line is not None else ''}"
+                ),
+                source="span_arbiter",
+            )
+        )
+    else:
+        unknown.append(
+            make_epistemic_claim(
+                label=f"span_match={hypothesis_id}",
+                status=EpistemicStatus.UNKNOWN,
+                evidence="No authoritative file/line match was found for the exact span.",
+                source="span_arbiter",
+            )
+        )
+
+    inferred.append(
+        make_epistemic_claim(
+            label=f"span_verdict={verdict}",
+            status=EpistemicStatus.INFERRED,
+            evidence=f"Similarity score {similarity_score:.2f}",
+            source="span_arbiter",
+        )
+    )
+
+    return merge_epistemic_snapshots(
+        {"observed": observed, "inferred": inferred, "unknown": unknown}
+    )
 
 
 async def span_arbiter_node(state: dict) -> dict:
@@ -34,6 +87,7 @@ async def span_arbiter_node(state: dict) -> dict:
         hypothesis_id = hyp.get("hypothesis_id", "unknown")
         exact_span = hyp.get("exact_span", "")
         suspected_file = hyp.get("suspected_file", "")
+        hypothesis_snapshot = ensure_epistemic_snapshot(hyp.get("epistemic_snapshot"))
 
         logger.info(f"[span_arbiter] Verifying hypothesis {hypothesis_id}: '{exact_span[:50]}...'")
 
@@ -89,6 +143,14 @@ async def span_arbiter_node(state: dict) -> dict:
                 matched_line=matched_line,
                 similarity_score=best_score,
                 verdict=verdict,
+                hypothesis_epistemic_snapshot=hypothesis_snapshot,
+                epistemic_snapshot=_build_span_epistemic_snapshot(
+                    hypothesis_id,
+                    verdict,
+                    matched_file,
+                    matched_line,
+                    best_score,
+                ),
             )
 
             logger.info(
@@ -103,6 +165,14 @@ async def span_arbiter_node(state: dict) -> dict:
                 span_found=False,
                 similarity_score=0.0,
                 verdict="ERROR",
+                hypothesis_epistemic_snapshot=hypothesis_snapshot,
+                epistemic_snapshot=_build_span_epistemic_snapshot(
+                    hypothesis_id,
+                    "ERROR",
+                    None,
+                    None,
+                    0.0,
+                ),
             )
 
         verdicts.append(span_verdict.model_dump())

@@ -15,7 +15,7 @@ class FakeGraph:
         self.calls = []
 
     async def ainvoke(self, state, config=None):
-        self.calls.append((state, config))
+        self.calls.append({"state": state, "config": config})
         if self.error:
             raise self.error
         return self.result
@@ -53,6 +53,11 @@ def test_incident_submission_success(monkeypatch):
             "triage_summary": "Null guard missing in OrdersController.",
             "final_severity": "HIGH",
             "verified_root_causes": ["OrdersController.cs: Missing null guard"],
+            "epistemic_context": {
+                "observed": [{"label": "error_code=500", "evidence": "500"}],
+                "inferred": [{"label": "Missing null guard", "evidence": "hypothesis"}],
+                "unknown": [{"label": "upstream_validation_or_wiring", "evidence": "not indexed"}],
+            },
             "suggested_runbooks": [
                 {
                     "runbook_id": "RB-42",
@@ -94,14 +99,15 @@ def test_incident_submission_success(monkeypatch):
     assert payload["incident_id"]
     assert payload["status"] == IncidentStatus.TRIAGED.value
     assert payload["ticket_id"] == "SRE-123456"
+    assert "epistemic_context" not in payload
     assert payload["suggested_runbooks"][0]["runbook_id"] == "RB-42"
 
-    submitted_state, submitted_config = graph.calls[0]
+    submitted_state = graph.calls[0]["state"]
     assert submitted_state["has_image"] is True
     assert submitted_state["image_mime_type"] == "image/png"
     assert submitted_state["image_data_b64"]
     assert submitted_state["raw_report"].startswith("Reporter: Hector (hector@example.com)")
-    assert submitted_config["configurable"]["thread_id"] == payload["incident_id"]
+    assert graph.calls[0]["config"]["configurable"]["thread_id"] == payload["incident_id"]
 
     assert "image_data_b64" not in persisted[0]
     assert persisted[0]["incident_id"] == payload["incident_id"]

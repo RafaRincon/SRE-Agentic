@@ -6,14 +6,107 @@ into a final triage summary. Computes severity deterministically via FSM.
 Transitions state to TRIAGED.
 """
 
+import copy
 import logging
-from app.agents.state import IncidentStatus, Severity
+from app.agents.state import (
+    IncidentStatus,
+    Severity,
+    ensure_epistemic_snapshot,
+    merge_epistemic_snapshots,
+)
 from app.symbolic.fsm import compute_severity
 from app.agents.state import IncidentState
 from app.providers import db_provider, llm_provider
 from app.ledger.audit import record_state_transition, record_entry
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_lines(snapshot) -> list[str]:
+    normalized = ensure_epistemic_snapshot(snapshot)
+    lines = []
+
+    for claim in normalized.observed:
+        lines.append(f"Observed: {claim.label} | evidence={claim.evidence}")
+    for claim in normalized.inferred:
+        lines.append(f"Inferred: {claim.label} | evidence={claim.evidence}")
+    for claim in normalized.unknown:
+        lines.append(f"Unknown: {claim.label} | evidence={claim.evidence}")
+
+    return lines
+
+
+def _format_epistemic_context(context: dict) -> str:
+    lines = []
+    for bucket in ("observed", "inferred", "unknown"):
+        claims = context.get(bucket, [])
+        lines.append(f"{bucket.capitalize()}:")
+        if claims:
+            lines.extend(
+                [
+                    f"- {claim.get('label', '')} | evidence={claim.get('evidence', '')}"
+                    for claim in claims[:6]
+                ]
+            )
+        else:
+            lines.append("- None")
+    return "\n".join(lines)
+
+
+def _build_final_epistemic_context(
+    world_model: dict,
+    entities: dict,
+    verified_payloads: list[dict],
+    discarded_payloads: list[dict],
+) -> dict:
+    world_snapshot = ensure_epistemic_snapshot(world_model.get("epistemic_snapshot"))
+    entity_snapshot = ensure_epistemic_snapshot(entities.get("epistemic_snapshot"))
+
+    verified_snapshots = [
+        merge_epistemic_snapshots(
+            payload.get("hypothesis", {}).get("epistemic_snapshot"),
+            payload.get("span_verdict", {}).get("epistemic_snapshot"),
+            payload.get("falsifier_verdict", {}).get("epistemic_snapshot"),
+        )
+        for payload in verified_payloads
+    ]
+    merged = merge_epistemic_snapshots(
+        world_snapshot,
+        entity_snapshot,
+        *verified_snapshots,
+    )
+
+    return {
+        "observed": [claim.model_dump() for claim in merged.observed],
+        "inferred": [claim.model_dump() for claim in merged.inferred],
+        "unknown": [claim.model_dump() for claim in merged.unknown],
+        "world_model": world_snapshot.model_dump(),
+        "entities": entity_snapshot.model_dump(),
+        "verified_hypotheses": [
+            {
+                "hypothesis_id": payload.get("hypothesis", {}).get("hypothesis_id", ""),
+                "description": payload.get("hypothesis", {}).get("description", ""),
+                "hypothesis_snapshot": ensure_epistemic_snapshot(
+                    payload.get("hypothesis", {}).get("epistemic_snapshot")
+                ).model_dump(),
+                "span_verdict": payload.get("span_verdict", {}),
+                "falsifier_verdict": payload.get("falsifier_verdict", {}),
+            }
+            for payload in verified_payloads
+        ],
+        "discarded_hypotheses": [
+            {
+                "hypothesis_id": payload.get("hypothesis", {}).get("hypothesis_id", ""),
+                "description": payload.get("hypothesis", {}).get("description", ""),
+                "hypothesis_snapshot": ensure_epistemic_snapshot(
+                    payload.get("hypothesis", {}).get("epistemic_snapshot")
+                ).model_dump(),
+                "span_verdict": payload.get("span_verdict", {}),
+                "falsifier_verdict": payload.get("falsifier_verdict", {}),
+            }
+            for payload in discarded_payloads
+        ],
+    }
 
 
 def _format_historical_context(context: dict) -> str:
@@ -50,26 +143,70 @@ async def consolidator_node(state: dict) -> dict:
     """
     Merge findings from both tracks and produce the final triage summary.
     """
-    world_model = state.get("world_model", {})
-    entities = state.get("entities", {})
+    world_model = state.get("world_model") or {}
+    entities = state.get("entities") or {}
     hypotheses = state.get("hypotheses", [])
     span_verdicts = state.get("span_verdicts", [])
 
-    # --- Determine verified root causes (survived span arbitration) ---
-    verified_hypotheses = []
-    for hyp in hypotheses:
-        hyp_id = hyp.get("hypothesis_id")
-        verdict = next(
-            (v for v in span_verdicts if v.get("hypothesis_id") == hyp_id),
-            None,
-        )
-        if verdict and verdict.get("verdict") in ("VERIFIED", "PARTIAL_MATCH"):
-            verified_hypotheses.append(hyp)
+    span_by_id = {verdict.get("hypothesis_id"): verdict for verdict in span_verdicts}
+    falsifier_verdicts = state.get("falsifier_verdicts", [])
+    falsifier_by_id = {
+        verdict.get("hypothesis_id"): verdict for verdict in falsifier_verdicts
+    }
 
+    verified_payloads = []
+    discarded_payloads = []
+
+    for hypothesis in hypotheses:
+        hyp_id = hypothesis.get("hypothesis_id")
+        hyp_desc = hypothesis.get("description", "")[:80]
+        span_verdict = span_by_id.get(hyp_id, {})
+        falsifier_verdict = falsifier_by_id.get(hyp_id, {})
+
+        span_passed = span_verdict.get("verdict") in ("VERIFIED", "PARTIAL_MATCH")
+        was_falsified = falsifier_verdict.get("verdict") == "FALSIFIED"
+
+        payload = {
+            "hypothesis": hypothesis,
+            "span_verdict": span_verdict,
+            "falsifier_verdict": falsifier_verdict,
+        }
+
+        if span_passed and not was_falsified:
+            verified_payloads.append(payload)
+        else:
+            discarded_payloads.append(payload)
+            if not span_passed:
+                logger.debug(f"[consolidator] REJECTED (span): {hyp_desc}")
+            elif was_falsified:
+                logger.info(f"[consolidator] FALSIFIED (Popper): {hyp_desc}")
+
+    verified_hypotheses = [payload["hypothesis"] for payload in verified_payloads]
     verified_root_causes = [
-        f"{h.get('suspected_file', 'unknown')}: {h.get('description', '')}"
-        for h in verified_hypotheses
+        f"{hypothesis.get('suspected_file', 'unknown')}: {hypothesis.get('description', '')}"
+        for hypothesis in verified_hypotheses
     ]
+
+    falsifier_corroborated = {
+        hyp_id for hyp_id, verdict in falsifier_by_id.items()
+        if verdict.get("verdict") == "CORROBORATED"
+    }
+    falsifier_falsified = {
+        hyp_id for hyp_id, verdict in falsifier_by_id.items()
+        if verdict.get("verdict") == "FALSIFIED"
+    }
+    span_verified = {
+        hyp_id for hyp_id, verdict in span_by_id.items()
+        if verdict.get("verdict") in ("VERIFIED", "PARTIAL_MATCH")
+    }
+
+    logger.info(
+        f"[consolidator] Epistemic filter: "
+        f"{len(hypotheses)} total → {len(span_verified)} span-verified → "
+        f"{len(verified_hypotheses)} passed falsification "
+        f"({len(falsifier_falsified)} falsified, "
+        f"{len(falsifier_corroborated)} corroborated)"
+    )
 
     # --- Compute severity deterministically ---
     # Build a minimal state for severity computation
@@ -84,10 +221,13 @@ async def consolidator_node(state: dict) -> dict:
     final_severity = compute_severity(temp_state)
 
     # --- Generate triage summary using LLM ---
-    discarded = [
-        h for h in hypotheses
-        if h.get("hypothesis_id") not in [v.get("hypothesis_id") for v in verified_hypotheses]
-    ]
+    discarded = [payload["hypothesis"] for payload in discarded_payloads]
+    epistemic_context = _build_final_epistemic_context(
+        world_model,
+        entities,
+        verified_payloads,
+        discarded_payloads,
+    )
 
     # --- Search for matching runbooks ---
     suggested_runbooks = []
@@ -141,38 +281,23 @@ async def consolidator_node(state: dict) -> dict:
     else:
         runbook_section = "- No matching runbooks found."
 
-    summary_prompt = f"""Generate a concise technical triage summary for this incident.
+    from app.agents.prompts import CONSOLIDATOR_SYSTEM, build_consolidator_prompt
 
-INCIDENT OVERVIEW:
-- Service: {world_model.get('affected_service', 'unknown')}
-- Category: {world_model.get('incident_category', 'unknown')}
-- Severity: {final_severity.value}
-- Blast Radius: {world_model.get('blast_radius', [])}
-
-EXTRACTED ENTITIES:
-- Error: {entities.get('error_code', 'N/A')} — {entities.get('error_message', 'N/A')}
-- Endpoint: {entities.get('endpoint_affected', 'N/A')}
-
-VERIFIED ROOT CAUSES ({len(verified_hypotheses)} hypotheses survived verification):
-{chr(10).join(f'- {rc}' for rc in verified_root_causes) or '- No verified root causes'}
-
-DISCARDED HYPOTHESES ({len(discarded)} failed span verification — likely hallucinated):
-{chr(10).join(f'- {h.get("description", "")} [REASON: citation not found in codebase]' for h in discarded) or '- None'}
-
-HISTORICAL PRECEDENTS:
-{_format_historical_context(state.get('historical_context', {}))}
-
-Write a 3-5 sentence summary for the on-call engineering team. Include specific file names and functions only for VERIFIED causes. Mention that {len(discarded)} hypotheses were discarded due to failed evidence verification. If precedents exist, mention them and suggest proven resolutions. If this is a RECURRING issue, flag it explicitly.
-
-SUGGESTED RUNBOOKS:
-{runbook_section}
-
-If a matching runbook exists, include the runbook ID and key action steps in your summary."""
+    summary_prompt = build_consolidator_prompt(
+        world_model=world_model,
+        entities=entities,
+        final_severity=final_severity.value,
+        verified_root_causes=verified_root_causes,
+        discarded=discarded,
+        historical_context_formatted=_format_historical_context(state.get('historical_context', {})),
+        runbook_section=runbook_section,
+        epistemic_context_formatted=_format_epistemic_context(epistemic_context),
+    )
 
     try:
         triage_summary = await llm_provider.generate_text(
             prompt=summary_prompt,
-            system_instruction="You are an SRE writing a concise technical incident triage summary. Be direct, factual, and actionable.",
+            system_instruction=CONSOLIDATOR_SYSTEM,
         )
     except Exception as e:
         logger.error(f"[consolidator] Summary generation failed: {e}")
@@ -208,6 +333,7 @@ If a matching runbook exists, include the runbook ID and key action steps in you
                 "recurrence_count": state.get("historical_context", {}).get(
                     "recurrence_count", 0
                 ),
+                "epistemic_context": copy.deepcopy(epistemic_context),
             },
         )
     except Exception as e:
@@ -217,6 +343,7 @@ If a matching runbook exists, include the runbook ID and key action steps in you
         "triage_summary": triage_summary,
         "final_severity": final_severity.value,
         "verified_root_causes": verified_root_causes,
+        "epistemic_context": copy.deepcopy(epistemic_context),
         "suggested_runbooks": [
             {
                 "runbook_id": r.get("metadata", {}).get("runbook_id", ""),

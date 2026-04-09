@@ -6,6 +6,7 @@ import pytest
 
 import app.agents.nodes.actions as actions_module
 import app.agents.nodes.consolidator as consolidator_module
+import app.agents.nodes.falsifier as falsifier_module
 import app.agents.nodes.intake as intake_module
 import app.agents.nodes.risk_hypothesizer as risk_module
 import app.agents.nodes.slot_filler as slot_filler_module
@@ -64,6 +65,7 @@ async def test_world_model_node_uses_structured_generation_without_image(monkeyp
     result = await world_model_module.world_model_node({"raw_report": "HTTP 500"})
 
     assert result["world_model"]["affected_service"] == "Ordering.API"
+    assert result["world_model"]["epistemic_snapshot"]["inferred"]
 
 
 @pytest.mark.asyncio
@@ -137,6 +139,8 @@ async def test_slot_filler_node_extracts_entities(monkeypatch):
     result = await slot_filler_module.slot_filler_node({"raw_report": "HTTP 500"})
 
     assert result["entities"]["error_code"] == "500"
+    assert result["entities"]["epistemic_snapshot"]["observed"]
+    assert result["entities"]["epistemic_snapshot"]["unknown"]
 
 
 @pytest.mark.asyncio
@@ -203,6 +207,18 @@ async def test_span_arbiter_verifies_matching_span_and_records_ledger(monkeypatc
                     "hypothesis_id": "hyp-1",
                     "exact_span": "throw new NullReferenceException();",
                     "suspected_file": "OrdersController.cs",
+                    "epistemic_snapshot": {
+                        "observed": [
+                            {
+                                "label": "from_hypothesis",
+                                "status": "OBSERVED",
+                                "evidence": "throw new NullReferenceException();",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "inferred": [],
+                        "unknown": [],
+                    },
                 }
             ],
         }
@@ -211,6 +227,8 @@ async def test_span_arbiter_verifies_matching_span_and_records_ledger(monkeypatc
     verdict = result["span_verdicts"][0]
     assert verdict["verdict"] == "VERIFIED"
     assert verdict["matched_line"] == 42
+    assert verdict["hypothesis_epistemic_snapshot"]["observed"][0]["label"] == "from_hypothesis"
+    assert verdict["epistemic_snapshot"]["observed"][0]["label"] == "span_match=hyp-1"
     assert recorded[0]["incident_id"] == "inc-1"
 
 
@@ -292,7 +310,7 @@ async def test_retrieve_with_expansion_deduplicates_and_skips_failed_queries(mon
             raise RuntimeError("boom")
         return embeddings[query]
 
-    def fake_vector_search(query_vector, top_k, service_filter):
+    def fake_vector_search(query_vector, top_k, service_filter, **kwargs):
         if query_vector == [1.0]:
             return [
                 {"id": "a", "similarity_score": 0.2},
@@ -417,7 +435,70 @@ async def test_risk_hypothesizer_node_returns_grounded_hypotheses(monkeypatch):
 
     assert len(result["hypotheses"]) == 1
     assert result["historical_context"]["recurrence_count"] == 1
+    assert result["hypotheses"][0]["epistemic_snapshot"]["observed"][0]["label"].startswith("exact_span=")
+    assert result["hypotheses"][0]["epistemic_snapshot"]["unknown"][0]["label"] == "upstream_validation_or_wiring"
     assert recorded[0]["incident_id"] == "inc-1"
+
+
+@pytest.mark.asyncio
+async def test_falsifier_node_preserves_hypothesis_snapshot_and_records_ledger(monkeypatch):
+    recorded = []
+
+    async def fake_falsify_hypothesis(hypothesis):
+        return falsifier_module.FalsifierVerdict(
+            hypothesis_id=hypothesis["hypothesis_id"],
+            axiom_tested="NULL_GUARD",
+            passed=True,
+            evidence="Observed null guard after dereference.",
+            verdict="CORROBORATED",
+            reasoning="The primary path still reaches the dereference before any guard.",
+            supporting_evidence=["if (order == null) throw ..."],
+            confidence=0.8,
+        )
+
+    monkeypatch.setattr(falsifier_module, "falsify_hypothesis", fake_falsify_hypothesis)
+    monkeypatch.setattr(
+        falsifier_module,
+        "record_verdict",
+        lambda **kwargs: recorded.append(kwargs),
+    )
+
+    result = await falsifier_module.falsifier_node(
+        {
+            "incident_id": "inc-9",
+            "hypotheses": [
+                {
+                    "hypothesis_id": "h1",
+                    "description": "Missing null guard",
+                    "epistemic_snapshot": {
+                        "observed": [
+                            {
+                                "label": "exact_span=throw new NullReferenceException();",
+                                "status": "OBSERVED",
+                                "evidence": "throw new NullReferenceException();",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "inferred": [
+                            {
+                                "label": "Missing null guard",
+                                "status": "INFERRED",
+                                "evidence": "Causal interpretation grounded in code.",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "unknown": [],
+                    },
+                }
+            ],
+        }
+    )
+
+    verdict = result["falsifier_verdicts"][0]
+    assert verdict["hypothesis_id"] == "h1"
+    assert verdict["hypothesis_epistemic_snapshot"]["observed"][0]["label"].startswith("exact_span=")
+    assert verdict["epistemic_snapshot"]["observed"][0]["label"] == "supporting_evidence"
+    assert recorded[0]["verdict_type"] == "FALSIFIER_VERDICT"
 
 
 @pytest.mark.asyncio
@@ -494,11 +575,35 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
                 "incident_category": "RuntimeException",
                 "blast_radius": ["WebApp"],
                 "estimated_severity": "UNKNOWN",
+                "epistemic_snapshot": {
+                    "observed": [],
+                    "inferred": [
+                        {
+                            "label": "affected_service=Ordering.API",
+                            "status": "INFERRED",
+                            "evidence": "Projected from context",
+                            "source": "world_model",
+                        }
+                    ],
+                    "unknown": [],
+                },
             },
             "entities": {
                 "error_code": "500",
                 "error_message": "NullReferenceException",
                 "endpoint_affected": "/api/orders",
+                "epistemic_snapshot": {
+                    "observed": [
+                        {
+                            "label": "error_code=500",
+                            "status": "OBSERVED",
+                            "evidence": "500",
+                            "source": "slot_filler",
+                        }
+                    ],
+                    "inferred": [],
+                    "unknown": [],
+                },
             },
             "hypotheses": [
                 {
@@ -506,6 +611,18 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
                     "suspected_file": "OrdersController.cs",
                     "description": "Missing null guard",
                     "exact_span": "throw new NullReferenceException();",
+                    "epistemic_snapshot": {
+                        "observed": [
+                            {
+                                "label": "exact_span=throw new NullReferenceException();",
+                                "status": "OBSERVED",
+                                "evidence": "throw new NullReferenceException();",
+                                "source": "risk_hypothesizer",
+                            }
+                        ],
+                        "inferred": [],
+                        "unknown": [],
+                    },
                 },
                 {
                     "hypothesis_id": "h2",
@@ -515,8 +632,41 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
                 },
             ],
             "span_verdicts": [
-                {"hypothesis_id": "h1", "verdict": "VERIFIED"},
+                {
+                    "hypothesis_id": "h1",
+                    "verdict": "VERIFIED",
+                    "epistemic_snapshot": {
+                        "observed": [
+                            {
+                                "label": "span_match=h1",
+                                "status": "OBSERVED",
+                                "evidence": "Matched in OrdersController.cs line 42",
+                                "source": "span_arbiter",
+                            }
+                        ],
+                        "inferred": [],
+                        "unknown": [],
+                    },
+                },
                 {"hypothesis_id": "h2", "verdict": "HALLUCINATION"},
+            ],
+            "falsifier_verdicts": [
+                {
+                    "hypothesis_id": "h1",
+                    "verdict": "CORROBORATED",
+                    "epistemic_snapshot": {
+                        "observed": [
+                            {
+                                "label": "supporting_evidence",
+                                "status": "OBSERVED",
+                                "evidence": "Dereference still reachable.",
+                                "source": "falsifier",
+                            }
+                        ],
+                        "inferred": [],
+                        "unknown": [],
+                    },
+                }
             ],
             "historical_context": {"similar_past_incidents": [], "recurrence_count": 0},
         }
@@ -524,6 +674,8 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
 
     assert result["status"].value == "TRIAGED"
     assert result["verified_root_causes"] == ["OrdersController.cs: Missing null guard"]
+    assert result["epistemic_context"]["observed"]
+    assert result["epistemic_context"]["verified_hypotheses"][0]["hypothesis_id"] == "h1"
     assert ledger_calls
 
 
@@ -666,6 +818,80 @@ async def test_create_ticket_and_notify_team_nodes():
     )
 
     assert created["status"].value == "TICKET_CREATED"
+    assert "epistemic_context" not in created["ticket"]
     assert created["ticket"]["assigned_team"] == "Order Team"
     assert notified["status"].value == "TEAM_NOTIFIED"
     assert notified["notifications"]["team_notified"] is True
+
+
+@pytest.mark.asyncio
+async def test_falsifier_returns_empty_without_hypotheses():
+    result = await falsifier_module.falsifier_node({"hypotheses": []})
+    assert result == {"falsifier_verdicts": []}
+
+
+@pytest.mark.asyncio
+async def test_falsifier_node_collects_verdicts(monkeypatch):
+    async def fake_falsify_hypothesis(h):
+        return falsifier_module.FalsificationVerdict(
+            hypothesis_id=h.get("hypothesis_id", "unknown"),
+            verdict="CORROBORATED" if h.get("hypothesis_id") == "h1" else "FALSIFIED",
+            reasoning="Mocked reasoning",
+            confidence=0.9
+        )
+    
+    monkeypatch.setattr(falsifier_module, "falsify_hypothesis", fake_falsify_hypothesis)
+    
+    result = await falsifier_module.falsifier_node({
+        "hypotheses": [{"hypothesis_id": "h1"}, {"hypothesis_id": "h2"}]
+    })
+    
+    assert len(result["falsifier_verdicts"]) == 2
+    assert result["falsifier_verdicts"][0]["verdict"] == "CORROBORATED"
+    assert result["falsifier_verdicts"][1]["verdict"] == "FALSIFIED"
+
+
+@pytest.mark.asyncio
+async def test_falsify_hypothesis_returns_structured_output(monkeypatch):
+    class FakeAgent:
+        async def ainvoke(self, args):
+            return {
+                "messages": [
+                    types.SimpleNamespace(
+                        content=falsifier_module.FalsificationVerdict(
+                            hypothesis_id="h1",
+                            verdict="FALSIFIED",
+                            reasoning="Found null check",
+                            confidence=1.0,
+                            counter_evidence=["if (x == null)"],
+                            supporting_evidence=[]
+                        )
+                    )
+                ]
+            }
+
+    monkeypatch.setattr(falsifier_module, "create_agent", lambda **kwargs: FakeAgent())
+    monkeypatch.setattr(falsifier_module, "_make_tools", lambda: [])
+    monkeypatch.setattr(falsifier_module, "_get_model", lambda: None)
+    
+    result = await falsifier_module.falsify_hypothesis({"hypothesis_id": "h1", "description": "desc"})
+    
+    assert result.verdict == "FALSIFIED"
+    assert result.reasoning == "Found null check"
+    assert result.confidence == 1.0
+
+
+@pytest.mark.asyncio
+async def test_falsify_hypothesis_handles_agent_exception(monkeypatch):
+    class FakeAgent:
+        async def ainvoke(self, args):
+            raise RuntimeError("Agent crashed")
+
+    monkeypatch.setattr(falsifier_module, "create_agent", lambda **kwargs: FakeAgent())
+    monkeypatch.setattr(falsifier_module, "_make_tools", lambda: [])
+    monkeypatch.setattr(falsifier_module, "_get_model", lambda: None)
+    
+    result = await falsifier_module.falsify_hypothesis({"hypothesis_id": "h1", "description": "desc"})
+    
+    assert result.verdict == "INSUFFICIENT_EVIDENCE"
+    assert "Agent crashed" in result.reasoning

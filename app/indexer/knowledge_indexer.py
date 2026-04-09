@@ -67,6 +67,24 @@ def _extract_tags(incident: dict) -> list[str]:
     return list(set(tags))
 
 
+def _format_epistemic_context(epistemic_context: dict) -> str:
+    if not epistemic_context:
+        return ""
+
+    lines = ["Epistemic Context:"]
+    for bucket in ("observed", "inferred", "unknown"):
+        claims = epistemic_context.get(bucket, [])
+        lines.append(f"{bucket.capitalize()}:")
+        if claims:
+            for claim in claims[:5]:
+                lines.append(
+                    f"  - {claim.get('label', '')} | evidence={claim.get('evidence', '')}"
+                )
+        else:
+            lines.append("  - None")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Build knowledge chunks from a resolved incident + its ledger
 # ---------------------------------------------------------------------------
@@ -96,6 +114,7 @@ def _build_resolution_chunks(
     entities = incident.get("entities", {})
     verified_causes = incident.get("verified_root_causes", [])
     triage_summary = incident.get("triage_summary", "")
+    epistemic_context = incident.get("epistemic_context", {})
 
     # Compute MTTR from ledger timestamps
     mttr_minutes = _compute_mttr(incident, ledger_entries)
@@ -162,6 +181,8 @@ def _build_resolution_chunks(
                     f" Line: {sv.get('matched_line', '?')}"
                     f" Score: {sv.get('similarity_score', 0):.2f}\n"
                 )
+        if epistemic_context:
+            cause_text += _format_epistemic_context(epistemic_context)
 
         chunks.append({
             **base,
@@ -197,6 +218,8 @@ def _build_resolution_chunks(
             f"Hypotheses generated: {total_hypotheses}, "
             f"Discarded (hallucinated): {discarded}\n"
         )
+        if epistemic_context:
+            resolution_text += _format_epistemic_context(epistemic_context)
 
         chunks.append({
             **base,
@@ -247,6 +270,9 @@ def _build_reasoning_trace(
                 f" | file={data.get('suspected_file', '?')}"
                 f" | confidence={data.get('confidence', '?')}"
             )
+            snapshot = data.get("epistemic_snapshot", {})
+            if snapshot:
+                lines.extend(_format_epistemic_context(snapshot).splitlines())
         elif event_type == "SPAN_VERDICT":
             verdict = data.get("verdict", "?")
             score = data.get("similarity_score", 0)
@@ -255,6 +281,26 @@ def _build_reasoning_trace(
                 f" | score={score:.2f}"
                 f" | file={data.get('matched_file', '?')}"
             )
+            snapshot = data.get("epistemic_snapshot", {})
+            if snapshot:
+                lines.extend(_format_epistemic_context(snapshot).splitlines())
+        elif event_type == "FALSIFIER_VERDICT":
+            lines.append(
+                f"[{ts}] FALSIFIER ({node}): {data.get('verdict', '?')}"
+                f" | axiom={data.get('axiom_tested', '?')}"
+                f" | confidence={data.get('confidence', '?')}"
+            )
+            snapshot = data.get("epistemic_snapshot", {})
+            if snapshot:
+                lines.extend(_format_epistemic_context(snapshot).splitlines())
+        elif event_type == "TRIAGE_COMPLETE":
+            lines.append(
+                f"[{ts}] TRIAGE COMPLETE ({node}): severity={data.get('final_severity', '?')}"
+                f" | verified={data.get('verified_causes_count', 0)}"
+            )
+            snapshot = data.get("epistemic_context", {})
+            if snapshot:
+                lines.extend(_format_epistemic_context(snapshot).splitlines())
 
     # Cap at 2000 chars to stay within chunk size
     trace = "\n".join(lines)
