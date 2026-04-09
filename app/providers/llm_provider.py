@@ -30,15 +30,13 @@ _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
-    """Return a cached Gemini client configured for Vertex AI Express Mode."""
+    """Return a cached Gemini client configured for Gemini Developer API."""
     global _client
     if _client is None:
         settings = get_settings()
-        # Ensure we use vertexai=True to hit Vertex AI Express via API key for higher rate limits
-        _client = genai.Client(
-            vertexai=True,
-            api_key=settings.gemini_api_key
-        )
+        # Use the Gemini Developer API when authenticating with an AI Studio API key.
+        # Vertex AI endpoints require OAuth2/ADC credentials and will reject plain API keys.
+        _client = genai.Client(api_key=settings.gemini_api_key)
     return _client
 
 
