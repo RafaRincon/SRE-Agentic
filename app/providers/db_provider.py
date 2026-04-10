@@ -457,6 +457,7 @@ def list_incidents(limit: int = 50) -> list[dict]:
 def find_duplicate_incident(
     query_vector: list[float],
     similarity_threshold: float = 0.80,
+    exclude_incident_id: str | None = None,
 ) -> dict | None:
     """
     Find an open incident that is semantically similar to the new report.
@@ -467,6 +468,7 @@ def find_duplicate_incident(
     Args:
         query_vector: Embedding of the new incident report.
         similarity_threshold: Minimum similarity to consider a duplicate.
+        exclude_incident_id: Incident id to ignore during matching.
 
     Returns:
         Dict with parent incident info if duplicate found, None otherwise.
@@ -512,6 +514,9 @@ def find_duplicate_incident(
     best_score = 0.0
 
     for inc in open_incidents:
+        if exclude_incident_id and inc.get("incident_id") == exclude_incident_id:
+            continue
+
         inc_embedding = inc.get("report_embedding")
         if not inc_embedding:
             continue
@@ -537,6 +542,19 @@ def find_duplicate_incident(
         }
 
     return None
+
+
+async def async_find_duplicate_incident(
+    query_vector: list[float],
+    similarity_threshold: float = 0.80,
+    exclude_incident_id: str | None = None,
+) -> dict | None:
+    """Async-compatible wrapper for dedup callers inside graph nodes."""
+    return find_duplicate_incident(
+        query_vector=query_vector,
+        similarity_threshold=similarity_threshold,
+        exclude_incident_id=exclude_incident_id,
+    )
 
 
 # ---------------------------------------------------------------------------

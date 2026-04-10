@@ -49,6 +49,7 @@ async def dedup_node(state: dict) -> dict:
         duplicate_result = await db_provider.async_find_duplicate_incident(
             query_vector=report_embedding,
             similarity_threshold=SIMILARITY_THRESHOLD,
+            exclude_incident_id=incident_id,
         )
     except Exception as e:
         logger.warning(f"[dedup] Duplicate check failed (continuing): {e}")

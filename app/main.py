@@ -328,8 +328,6 @@ async def submit_incident(
     Dedup and persistence are handled inside the graph (n_dedup, n_notify_team)
     so the logic is consistent regardless of invocation method.
     """
-    incident_id = uuid.uuid4().hex
-    logger.info("New incident submitted: %s", incident_id)
     incident_id = (incident_id or "").strip() or uuid.uuid4().hex
     logger.info(f"📥 New incident submitted: {incident_id}")
 
@@ -389,6 +387,7 @@ async def submit_incident(
         duplicate_result = db_provider.find_duplicate_incident(
             query_vector=report_embedding,
             similarity_threshold=0.80,
+            exclude_incident_id=incident_id,
         )
         if duplicate_result:
             parent_id = duplicate_result["incident_id"]
