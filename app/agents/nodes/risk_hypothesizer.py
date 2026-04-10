@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 class ExpandedQueries(BaseModel):
     """Multi-perspective query expansion for SRE incidents."""
+    # Reasoning is retained for traceability and debugging.
+    thinking_process: str = Field(
+        description="Step-by-step reasoning: what aspects of the incident drove each query angle, and what code patterns you expect to find."
+    )
     error_query: str = Field(
         description="Search query focused on the error type, exception, and stack trace"
     )
@@ -47,12 +51,17 @@ class ExpandedQueries(BaseModel):
         description="Search query focused on inter-service dependencies, event bus, and integration points"
     )
     hypothetical_code_query: str = Field(
-        description="HyDE (Hypothetical Document Embeddings): Write a fake snippet of code that would perfectly cause this exact failure, to find structurally similar code."
+        description="HyDE (Hypothetical Document Embeddings): Write a hypothetical snippet of code that would perfectly cause this exact failure, to find structurally similar code."
     )
 
 
 class HypothesesOutput(BaseModel):
     """Wrapper for structured output with multiple hypotheses."""
+    # Reasoning is retained for traceability and debugging.
+    thinking_process: str = Field(
+        default="",
+        description="Overall analysis: how you interpreted the code evidence, which patterns stood out, and how you ranked the hypotheses by plausibility."
+    )
     hypotheses: list[RiskHypothesis] = Field(
         default_factory=list,
         description="List of risk hypotheses with mandatory code citations"
@@ -117,17 +126,18 @@ def _build_hypothesis_snapshot(hypothesis: RiskHypothesis):
 # ---------------------------------------------------------------------------
 
 
-async def expand_queries(raw_report: str, world_model: dict, entities: dict) -> list[str]:
+async def expand_queries(raw_report: str, world_model: dict, entities: dict, image_context: str = "") -> list[str]:
     """
     Generate multiple search queries from different perspectives.
     Uses LLM to produce semantically diverse queries for better recall.
     Falls back to manual extraction if LLM fails.
     """
+    image_section = f"\nImage evidence (extracted text): {image_context}" if image_context else ""
     context = f"""Incident: {raw_report[:500]}
 Service: {world_model.get('affected_service') or 'unknown'}
 Error: {entities.get('error_code') or ''} {entities.get('error_message') or ''}
 Endpoint: {entities.get('endpoint_affected') or ''}
-Stack: {(entities.get('stack_trace') or '')[:200]}"""
+Stack: {(entities.get('stack_trace') or '')[:200]}{image_section}"""
 
     from app.agents.prompts import RISK_EXPANSION_SYSTEM, build_risk_expansion_prompt
     
@@ -264,153 +274,179 @@ async def risk_hypothesizer_node(state: dict) -> dict:
     2. Retrieve code chunks from each query (parallel, deduplicated)
     3. Generate hypotheses grounded in real retrieved code
     """
+    from app.providers.llm_provider import _langfuse, _LANGFUSE_ENABLED, _noop_ctx
+
     raw_report = state.get("raw_report", "")
     world_model = state.get("world_model", {})
     entities = state.get("entities", {})
+    incident_id = state.get("incident_id", "unknown")
+    image_context = state.get("image_extracted_context", "")
 
-    # --- Step 1: Query Expansion (LLM-powered) ---
-    expanded_queries = await expand_queries(raw_report, world_model, entities)
-
-    # --- Step 2: Multi-Query Retrieval (deduplicated) ---
-    service_filter = world_model.get("affected_service")
-    retrieved_chunks = await retrieve_with_expansion(
-        queries=expanded_queries,
-        service_filter=service_filter,
-        top_k_per_query=15,
+    node_ctx = (
+        _langfuse.start_as_current_observation(
+            as_type="span",
+            name="node:risk_hypothesizer",
+            input={"incident_id": incident_id, "service": world_model.get("affected_service", "unknown")},
+            metadata={"node": "risk_hypothesizer", "incident_id": incident_id},
+        )
+        if _LANGFUSE_ENABLED
+        else _noop_ctx()
     )
 
-    # --- Step 2b: Retrieve historical incidents (FLYWHEEL) ---
-    historical_chunks = []
-    try:
-        # Use the primary search query to find similar past incidents
-        primary_query = expanded_queries[0] if expanded_queries else raw_report[:500]
-        history_embedding = await llm_provider.generate_embedding(
-            primary_query,
-            task_type="RETRIEVAL_QUERY",
-        )
-        historical_chunks = db_provider.knowledge_search(
-            query_vector=history_embedding,
-            query_text=primary_query,
-            top_k=15,
+    with node_ctx as node_obs:
+        # --- Step 1: Query Expansion (LLM-powered) ---
+        expanded_queries = await expand_queries(raw_report, world_model, entities, image_context=image_context)
+
+        # --- Step 2: Multi-Query Retrieval (deduplicated) ---
+        service_filter = world_model.get("affected_service")
+        retrieved_chunks = await retrieve_with_expansion(
+            queries=expanded_queries,
             service_filter=service_filter,
+            top_k_per_query=15,
         )
+
+        # --- Step 2b: Retrieve historical incidents (FLYWHEEL) ---
+        historical_chunks = []
+        try:
+            # Use the primary search query to find similar past incidents
+            primary_query = expanded_queries[0] if expanded_queries else raw_report[:500]
+            history_embedding = await llm_provider.generate_embedding(
+                primary_query,
+                task_type="RETRIEVAL_QUERY",
+            )
+            historical_chunks = db_provider.knowledge_search(
+                query_vector=history_embedding,
+                query_text=primary_query,
+                top_k=15,
+                service_filter=service_filter,
+            )
+            if historical_chunks:
+                # Apply temporal decay to prioritize recent incidents
+                from app.indexer.knowledge_indexer import apply_temporal_decay
+                historical_chunks = apply_temporal_decay(historical_chunks)
+
+            logger.info(
+                f"[risk_hypothesizer] Retrieved {len(historical_chunks)} "
+                f"historical knowledge chunks"
+            )
+        except Exception as e:
+            logger.warning(f"[risk_hypothesizer] Historical retrieval failed: {e}")
+
+        # --- Step 3: Format retrieved code for the LLM ---
+        if retrieved_chunks:
+            code_context = "\n\n".join([
+                f"--- FILE: {c.get('file_path', 'unknown')} "
+                f"(lines {c.get('start_line', '?')}-{c.get('end_line', '?')}) ---\n"
+                f"{c.get('chunk_text', '')}"
+                for c in retrieved_chunks
+            ])
+        else:
+            code_context = (
+                "(No code chunks retrieved — codebase may not be indexed yet. "
+                "Generate hypotheses based on knowledge but with LOW confidence.)"
+            )
+
+        # --- Step 3b: Format historical context ---
         if historical_chunks:
-            # Apply temporal decay to prioritize recent incidents
-            from app.indexer.knowledge_indexer import apply_temporal_decay
-            historical_chunks = apply_temporal_decay(historical_chunks)
-
-        logger.info(
-            f"[risk_hypothesizer] Retrieved {len(historical_chunks)} "
-            f"historical knowledge chunks"
-        )
-    except Exception as e:
-        logger.warning(f"[risk_hypothesizer] Historical retrieval failed: {e}")
-
-    # --- Step 3: Format retrieved code for the LLM ---
-    if retrieved_chunks:
-        code_context = "\n\n".join([
-            f"--- FILE: {c.get('file_path', 'unknown')} "
-            f"(lines {c.get('start_line', '?')}-{c.get('end_line', '?')}) ---\n"
-            f"{c.get('chunk_text', '')}"
-            for c in retrieved_chunks
-        ])
-    else:
-        code_context = (
-            "(No code chunks retrieved — codebase may not be indexed yet. "
-            "Generate hypotheses based on knowledge but with LOW confidence.)"
-        )
-
-    # --- Step 3b: Format historical context ---
-    if historical_chunks:
-        history_context = "\n\n".join([
-            f"--- PAST INCIDENT [{c.get('source_id', '?')}] "
-            f"[Severity: {c.get('metadata', {}).get('severity', '?')}] "
-            f"[Role: {c.get('metadata', {}).get('chunk_role', '?')}] ---\n"
-            f"{c.get('chunk_text', '')[:500]}"
-            for c in historical_chunks
-        ])
-        recurrence_count = len([
-            c for c in historical_chunks
-            if c.get("similarity_score", 0) > 0.7
-        ])
-    else:
-        history_context = "(No historical incidents found — this may be the first occurrence.)"
-        recurrence_count = 0
-
-    # --- Step 4: Generate hypotheses grounded in real code + history ---
-    from app.agents.prompts import RISK_HYPOTHESIS_SYSTEM, build_risk_hypothesis_prompt
-
-    prompt = build_risk_hypothesis_prompt(
-        raw_report=raw_report,
-        world_model=world_model,
-        entities=entities,
-        code_context=code_context,
-        history_context=history_context,
-        retrieved_chunks_len=len(retrieved_chunks),
-        expanded_queries_len=len(expanded_queries),
-        historical_chunks_len=len(historical_chunks),
-        recurrence_count=recurrence_count
-    )
-
-    try:
-        result = await llm_provider.generate_structured(
-            prompt=prompt,
-            response_schema=HypothesesOutput,
-            system_instruction=RISK_HYPOTHESIS_SYSTEM,
-        )
-
-        # Filter out hypotheses without spans
-        valid_hypotheses = [
-            h for h in result.hypotheses
-            if h.exact_span and len(h.exact_span.strip()) > 5
-        ]
-
-        for hypothesis in valid_hypotheses:
-            if snapshot_is_empty(hypothesis.epistemic_snapshot):
-                hypothesis.epistemic_snapshot = _build_hypothesis_snapshot(hypothesis)
-
-        logger.info(
-            f"[risk_hypothesizer] Generated {len(result.hypotheses)} hypotheses, "
-            f"{len(valid_hypotheses)} with valid spans "
-            f"(from {len(retrieved_chunks)} chunks via {len(expanded_queries)}-query expansion)"
-        )
-
-        # Build historical context for consolidator
-        historical_context = {
-            "similar_past_incidents": [
-                {
-                    "source_id": c.get("source_id"),
-                    "severity": c.get("metadata", {}).get("severity"),
-                    "resolution_notes": c.get("metadata", {}).get("resolution_notes", ""),
-                    "mttr_minutes": c.get("metadata", {}).get("mttr_minutes"),
-                    "chunk_role": c.get("metadata", {}).get("chunk_role", ""),
-                    "similarity": c.get("similarity_score", 0),
-                }
+            history_context = "\n\n".join([
+                f"--- PAST INCIDENT [{c.get('source_id', '?')}] "
+                f"[Severity: {c.get('metadata', {}).get('severity', '?')}] "
+                f"[Role: {c.get('metadata', {}).get('chunk_role', '?')}] ---\n"
+                f"{c.get('chunk_text', '')[:500]}"
                 for c in historical_chunks
-                if c.get("metadata", {}).get("chunk_role") in ("resolution", "root_cause")
-            ],
-            "recurrence_count": recurrence_count,
-        }
+            ])
+            recurrence_count = len([
+                c for c in historical_chunks
+                if c.get("similarity_score", 0) > 0.7
+            ])
+        else:
+            history_context = "(No historical incidents found — this may be the first occurrence.)"
+            recurrence_count = 0
 
-        # Write each hypothesis to the audit ledger (feeds flywheel REASONING_TRACE)
-        incident_id = state.get("incident_id", "unknown")
-        for h in valid_hypotheses:
-            try:
-                record_hypothesis(
-                    incident_id=incident_id,
-                    hypothesis=h.model_dump(),
-                    node_name="risk_hypothesizer",
+        # --- Step 4: Generate hypotheses grounded in real code + history ---
+        from app.agents.prompts import RISK_HYPOTHESIS_SYSTEM, build_risk_hypothesis_prompt
+
+        prompt = build_risk_hypothesis_prompt(
+            raw_report=raw_report,
+            world_model=world_model,
+            entities=entities,
+            code_context=code_context,
+            history_context=history_context,
+            retrieved_chunks_len=len(retrieved_chunks),
+            expanded_queries_len=len(expanded_queries),
+            historical_chunks_len=len(historical_chunks),
+            recurrence_count=recurrence_count
+        )
+
+        try:
+            result = await llm_provider.generate_structured(
+                prompt=prompt,
+                response_schema=HypothesesOutput,
+                system_instruction=RISK_HYPOTHESIS_SYSTEM,
+            )
+
+            # Filter out hypotheses without spans
+            valid_hypotheses = [
+                h for h in result.hypotheses
+                if h.exact_span and len(h.exact_span.strip()) > 5
+            ]
+
+            for hypothesis in valid_hypotheses:
+                if snapshot_is_empty(hypothesis.epistemic_snapshot):
+                    hypothesis.epistemic_snapshot = _build_hypothesis_snapshot(hypothesis)
+
+            logger.info(
+                f"[risk_hypothesizer] Generated {len(result.hypotheses)} hypotheses, "
+                f"{len(valid_hypotheses)} with valid spans "
+                f"(from {len(retrieved_chunks)} chunks via {len(expanded_queries)}-query expansion)"
+            )
+
+            # Build historical context for consolidator
+            historical_context = {
+                "similar_past_incidents": [
+                    {
+                        "source_id": c.get("source_id"),
+                        "severity": c.get("metadata", {}).get("severity"),
+                        "resolution_notes": c.get("metadata", {}).get("resolution_notes", ""),
+                        "mttr_minutes": c.get("metadata", {}).get("mttr_minutes"),
+                        "chunk_role": c.get("metadata", {}).get("chunk_role", ""),
+                        "similarity": c.get("similarity_score", 0),
+                    }
+                    for c in historical_chunks
+                    if c.get("metadata", {}).get("chunk_role") in ("resolution", "root_cause")
+                ],
+                "recurrence_count": recurrence_count,
+            }
+
+            # Write each hypothesis to the audit ledger (feeds flywheel REASONING_TRACE)
+            for h in valid_hypotheses:
+                try:
+                    record_hypothesis(
+                        incident_id=incident_id,
+                        hypothesis=h.model_dump(),
+                        node_name="risk_hypothesizer",
+                    )
+                except Exception as e:
+                    logger.warning(f"[risk_hypothesizer] Ledger write failed: {e}")
+
+            if _LANGFUSE_ENABLED and node_obs:
+                node_obs.update(
+                    output={
+                        "hypothesis_count": len(valid_hypotheses),
+                        "retrieved_chunks": len(retrieved_chunks),
+                        "historical_chunks": len(historical_chunks),
+                        "recurrence_count": recurrence_count,
+                        "thinking_process": result.thinking_process[:500] if result.thinking_process else "",
+                    }
                 )
-            except Exception as e:
-                logger.warning(f"[risk_hypothesizer] Ledger write failed: {e}")
 
-        return {
-            "hypotheses": [h.model_dump() for h in valid_hypotheses],
-            "historical_context": historical_context,
-        }
+            return {
+                "hypotheses": [h.model_dump() for h in valid_hypotheses],
+                "historical_context": historical_context,
+            }
 
-    except Exception as e:
-        logger.error(f"[risk_hypothesizer] Error: {e}")
-        return {
-            "errors": state.get("errors", []) + [f"Risk hypothesizer failed: {str(e)}"],
-        }
+        except Exception as e:
+            logger.error(f"[risk_hypothesizer] Error: {e}")
+            return {
+                "errors": state.get("errors", []) + [f"Risk hypothesizer failed: {str(e)}"],
+            }

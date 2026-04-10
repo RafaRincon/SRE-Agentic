@@ -14,7 +14,7 @@ BM25 full-text indexing enabled on /chunk_text for both vector containers.
 """
 
 from azure.cosmos import CosmosClient, PartitionKey
-from azure.cosmos.exceptions import CosmosResourceExistsError
+from azure.cosmos.exceptions import CosmosHttpResponseError, CosmosResourceNotFoundError
 from typing import Any
 import logging
 
@@ -42,6 +42,13 @@ def _get_cosmos_client() -> CosmosClient:
     return _cosmos_client
 
 
+def reset_clients() -> None:
+    """Clear cached SDK clients. Useful in tests."""
+    global _cosmos_client, _containers
+    _cosmos_client = None
+    _containers = {}
+
+
 def get_database():
     """Get the Cosmos DB database client."""
     settings = get_settings()
@@ -55,6 +62,243 @@ def get_container(container_name: str):
         db = get_database()
         _containers[container_name] = db.get_container_client(container_name)
     return _containers[container_name]
+
+
+def _vector_embedding_policy(dimensions: int) -> dict[str, Any]:
+    return {
+        "vectorEmbeddings": [
+            {
+                "path": "/embedding",
+                "dataType": "float32",
+                "distanceFunction": "cosine",
+                "dimensions": dimensions,
+            }
+        ]
+    }
+
+
+def _vector_indexing_policy() -> dict[str, Any]:
+    return {
+        "indexingMode": "consistent",
+        "automatic": True,
+        "includedPaths": [{"path": "/*"}],
+        "excludedPaths": [{"path": '/"_etag"/?'}],
+        "vectorIndexes": [{"path": "/embedding", "type": "diskANN"}],
+        "fullTextIndexes": [{"path": "/chunk_text"}],
+    }
+
+
+def _full_text_policy() -> dict[str, Any]:
+    return {
+        "defaultLanguage": "en-US",
+        "fullTextPaths": [
+            {"path": "/chunk_text", "language": "en-US"},
+        ],
+    }
+
+
+def get_container_definitions() -> dict[str, dict[str, Any]]:
+    """Return the Cosmos DB container contract required by the application."""
+    settings = get_settings()
+    vector_policy = _vector_embedding_policy(settings.gemini_embedding_dimensions)
+    vector_indexing = _vector_indexing_policy()
+    full_text = _full_text_policy()
+
+    return {
+        settings.cosmos_container_chunks: {
+            "partition_key": "/service_name",
+            "indexing_policy": vector_indexing,
+            "vector_embedding_policy": vector_policy,
+            "full_text_policy": full_text,
+        },
+        settings.cosmos_container_knowledge: {
+            "partition_key": "/service_name",
+            "indexing_policy": vector_indexing,
+            "vector_embedding_policy": vector_policy,
+            "full_text_policy": full_text,
+        },
+        settings.cosmos_container_incidents: {
+            "partition_key": "/incident_id",
+            "indexing_policy": {
+                "indexingMode": "consistent",
+                "automatic": True,
+                "includedPaths": [{"path": "/*"}],
+                "excludedPaths": [{"path": '/"_etag"/?'}],
+            },
+        },
+        settings.cosmos_container_ledger: {
+            "partition_key": "/incident_id",
+            "indexing_policy": {
+                "indexingMode": "consistent",
+                "automatic": True,
+                "includedPaths": [{"path": "/*"}],
+                "excludedPaths": [{"path": '/"_etag"/?'}],
+            },
+        },
+        settings.cosmos_container_checkpoints: {
+            "partition_key": "/partition_key",
+            "indexing_policy": {
+                "indexingMode": "consistent",
+                "automatic": True,
+                "includedPaths": [{"path": "/*"}],
+                "excludedPaths": [{"path": '/"_etag"/?'}],
+            },
+        },
+    }
+
+
+def _verify_container_properties(
+    *,
+    container_name: str,
+    properties: dict[str, Any],
+    expected: dict[str, Any],
+) -> list[str]:
+    warnings: list[str] = []
+
+    actual_partition_paths = properties.get("partitionKey", {}).get("paths", [])
+    actual_partition_path = actual_partition_paths[0] if actual_partition_paths else None
+    if actual_partition_path != expected["partition_key"]:
+        warnings.append(
+            f"{container_name}: partition key mismatch "
+            f"(expected {expected['partition_key']}, got {actual_partition_path})"
+        )
+
+    indexing_policy = properties.get("indexingPolicy", {})
+    expected_indexing = expected.get("indexing_policy", {})
+
+    expected_vector_indexes = expected_indexing.get("vectorIndexes", [])
+    actual_vector_indexes = indexing_policy.get("vectorIndexes", [])
+    if expected_vector_indexes and actual_vector_indexes != expected_vector_indexes:
+        warnings.append(f"{container_name}: vectorIndexes differ from expected policy")
+
+    expected_full_text_indexes = expected_indexing.get("fullTextIndexes", [])
+    actual_full_text_indexes = indexing_policy.get("fullTextIndexes", [])
+    if expected_full_text_indexes and actual_full_text_indexes != expected_full_text_indexes:
+        warnings.append(f"{container_name}: fullTextIndexes differ from expected policy")
+
+    expected_full_text_policy = expected.get("full_text_policy")
+    actual_full_text_policy = properties.get("fullTextPolicy")
+    if expected_full_text_policy and actual_full_text_policy != expected_full_text_policy:
+        warnings.append(f"{container_name}: fullTextPolicy differs from expected policy")
+
+    expected_vector_policy = expected.get("vector_embedding_policy")
+    actual_vector_policy = properties.get("vectorEmbeddingPolicy")
+    if expected_vector_policy and actual_vector_policy != expected_vector_policy:
+        warnings.append(f"{container_name}: vectorEmbeddingPolicy differs from expected policy")
+
+    return warnings
+
+
+def ensure_database_and_containers() -> dict[str, Any]:
+    """
+    Create the database and required containers if missing.
+
+    Existing container policies are verified and surfaced as warnings to avoid
+    destructive replacements during a production bootstrap.
+    """
+    settings = get_settings()
+    client = _get_cosmos_client()
+    definitions = get_container_definitions()
+
+    database = client.create_database_if_not_exists(id=settings.cosmos_database)
+    created: list[str] = []
+    verified: list[str] = []
+    warnings: list[str] = []
+
+    for container_name, definition in definitions.items():
+        db = client.get_database_client(settings.cosmos_database)
+        before_exists = True
+        try:
+            existing = db.get_container_client(container_name)
+            properties = existing.read()
+        except CosmosResourceNotFoundError:
+            before_exists = False
+            properties = None
+        except CosmosHttpResponseError as exc:
+            before_exists = False
+            logger.warning("[bootstrap] Container lookup failed for %s: %s", container_name, exc)
+            properties = None
+
+        kwargs = {
+            "id": container_name,
+            "partition_key": PartitionKey(path=definition["partition_key"]),
+            "indexing_policy": definition.get("indexing_policy"),
+            "vector_embedding_policy": definition.get("vector_embedding_policy"),
+            "full_text_policy": definition.get("full_text_policy"),
+        }
+        kwargs = {key: value for key, value in kwargs.items() if value is not None}
+
+        container = database.create_container_if_not_exists(**kwargs)
+        _containers[container_name] = container
+
+        if not before_exists:
+            created.append(container_name)
+            properties = container.read()
+        else:
+            verified.append(container_name)
+
+        warnings.extend(
+            _verify_container_properties(
+                container_name=container_name,
+                properties=properties or container.read(),
+                expected=definition,
+            )
+        )
+
+    return {
+        "database": settings.cosmos_database,
+        "created_containers": created,
+        "verified_containers": verified,
+        "warnings": warnings,
+    }
+
+
+def get_runtime_health(*, require_index_ready: bool = False) -> dict[str, Any]:
+    """
+    Check database and container readiness for runtime traffic.
+    """
+    settings = get_settings()
+    definitions = get_container_definitions()
+    components: dict[str, dict[str, Any]] = {}
+    ready = True
+
+    try:
+        db_properties = get_database().read()
+        components["database"] = {
+            "ready": True,
+            "id": db_properties.get("id", settings.cosmos_database),
+        }
+    except Exception as exc:
+        ready = False
+        components["database"] = {"ready": False, "error": str(exc)}
+        return {"ready": ready, "components": components}
+
+    for container_name in definitions:
+        try:
+            properties = get_container(container_name).read()
+            components[container_name] = {
+                "ready": True,
+                "id": properties.get("id", container_name),
+            }
+        except Exception as exc:
+            ready = False
+            components[container_name] = {"ready": False, "error": str(exc)}
+
+    if require_index_ready and ready:
+        try:
+            chunk_count = count_chunks()
+            index_ready = chunk_count > 0
+            components["code_index"] = {
+                "ready": index_ready,
+                "chunk_count": chunk_count,
+            }
+            if not index_ready:
+                ready = False
+        except Exception as exc:
+            ready = False
+            components["code_index"] = {"ready": False, "error": str(exc)}
+
+    return {"ready": ready, "components": components}
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +457,7 @@ def list_incidents(limit: int = 50) -> list[dict]:
 def find_duplicate_incident(
     query_vector: list[float],
     similarity_threshold: float = 0.80,
+    exclude_incident_id: str | None = None,
 ) -> dict | None:
     """
     Find an open incident that is semantically similar to the new report.
@@ -223,6 +468,7 @@ def find_duplicate_incident(
     Args:
         query_vector: Embedding of the new incident report.
         similarity_threshold: Minimum similarity to consider a duplicate.
+        exclude_incident_id: Incident id to ignore during matching.
 
     Returns:
         Dict with parent incident info if duplicate found, None otherwise.
@@ -268,6 +514,9 @@ def find_duplicate_incident(
     best_score = 0.0
 
     for inc in open_incidents:
+        if exclude_incident_id and inc.get("incident_id") == exclude_incident_id:
+            continue
+
         inc_embedding = inc.get("report_embedding")
         if not inc_embedding:
             continue
@@ -293,6 +542,19 @@ def find_duplicate_incident(
         }
 
     return None
+
+
+async def async_find_duplicate_incident(
+    query_vector: list[float],
+    similarity_threshold: float = 0.80,
+    exclude_incident_id: str | None = None,
+) -> dict | None:
+    """Async-compatible wrapper for dedup callers inside graph nodes."""
+    return find_duplicate_incident(
+        query_vector=query_vector,
+        similarity_threshold=similarity_threshold,
+        exclude_incident_id=exclude_incident_id,
+    )
 
 
 # ---------------------------------------------------------------------------

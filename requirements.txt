@@ -1,35 +1,19 @@
-# === Core ===
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-python-multipart
-
-# === LLM ===
-google-genai
-
-# === Azure Cosmos DB NoSQL ===
-azure-cosmos
-azure-identity
-
-# === LangGraph ===
-langgraph
-langchain
-langchain-google-genai
-langgraph-checkpoint-cosmosdb
-
-# === Indexer ===
-gitpython
-langchain-text-splitters
-
-
-langfuse
-
-# === Utils ===
-httpx
-python-dotenv
-
-# === Testing ===
-pytest
-pytest-asyncio
-pytest-cov
+fastapi==0.135.3
+uvicorn[standard]==0.44.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-multipart==0.0.24
+google-genai==1.71.0
+azure-cosmos==4.15.0
+azure-identity==1.25.3
+langgraph==1.1.6
+langchain==1.2.15
+langchain-google-genai==4.2.1
+langgraph-checkpoint-cosmosdb==0.2.5
+GitPython==3.1.46
+langchain-text-splitters==1.1.1
+langfuse==4.0.6
+httpx==0.28.1
+python-dotenv==1.2.2
+tree-sitter==0.24.0
+tree-sitter-c-sharp==0.23.1

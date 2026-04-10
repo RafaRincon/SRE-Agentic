@@ -8,10 +8,12 @@ import app.agents.nodes.actions as actions_module
 import app.agents.nodes.consolidator as consolidator_module
 import app.agents.nodes.falsifier as falsifier_module
 import app.agents.nodes.intake as intake_module
+import app.agents.persistence as persistence_module
 import app.agents.nodes.risk_hypothesizer as risk_module
 import app.agents.nodes.slot_filler as slot_filler_module
 import app.agents.nodes.span_arbiter as span_arbiter_module
 import app.agents.nodes.world_model as world_model_module
+import app.providers.db_provider as db_provider_module
 from app.agents.state import (
     ExtractedEntity,
     NotificationInfo,
@@ -157,6 +159,38 @@ async def test_slot_filler_node_returns_error_on_failure(monkeypatch):
     result = await slot_filler_module.slot_filler_node({"raw_report": "HTTP 500"})
 
     assert result["errors"] == ["Slot filler failed: schema mismatch"]
+
+
+def test_persistence_helpers_strip_runtime_only_fields():
+    entities = {
+        "thinking_process": "debug trace",
+        "error_code": "500",
+        "error_message": "NullReferenceException",
+        "endpoint_affected": "/api/orders",
+    }
+    world_model = {
+        "thinking_process": "debug trace",
+        "affected_service": "Ordering.API",
+        "incident_category": "RuntimeException",
+        "blast_radius": ["WebApp"],
+        "estimated_severity": "HIGH",
+        "severity_rationale": "legacy",
+        "temporal_context": "ongoing",
+        "affected_service_confidence": "INFERRED",
+        "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+    }
+
+    assert persistence_module.normalize_entities_for_persistence(entities) == {
+        "error_code": "500",
+        "error_message": "NullReferenceException",
+        "endpoint_affected": "/api/orders",
+    }
+    assert persistence_module.normalize_world_model_for_persistence(world_model) == {
+        "affected_service": "Ordering.API",
+        "incident_category": "RuntimeException",
+        "blast_radius": ["WebApp"],
+        "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+    }
 
 
 @pytest.mark.asyncio
@@ -492,10 +526,24 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
     async def fake_generate_text(**kwargs):
         return "Ordering.API failed because a verified null guard was missing."
 
+    async def fake_generate_embedding(text, task_type):
+        assert task_type == "RETRIEVAL_QUERY"
+        return [0.8]
+
     monkeypatch.setattr(
         consolidator_module.llm_provider,
         "generate_text",
         fake_generate_text,
+    )
+    monkeypatch.setattr(
+        consolidator_module.llm_provider,
+        "generate_embedding",
+        fake_generate_embedding,
+    )
+    monkeypatch.setattr(
+        consolidator_module.db_provider,
+        "knowledge_search",
+        lambda **kwargs: [],
     )
     monkeypatch.setattr(
         consolidator_module,
@@ -614,7 +662,10 @@ async def test_consolidator_node_merges_verified_causes_and_records_ledger(monke
     )
 
     assert result["status"].value == "TRIAGED"
-    assert result["verified_root_causes"] == ["OrdersController.cs: Missing null guard"]
+    assert result["verified_root_causes"] == [
+        "OrdersController.cs: Missing null guard [✅ Confirmed]",
+        "PaymentService.cs: Noise hypothesis [❌ Unverified]",
+    ]
     assert result["epistemic_context"]["observed"]
     assert result["epistemic_context"]["verified_hypotheses"][0]["hypothesis_id"] == "h1"
     assert ledger_calls
@@ -740,7 +791,15 @@ async def test_consolidator_searches_runbooks_and_falls_back_on_summary_failure(
 
 
 @pytest.mark.asyncio
-async def test_create_ticket_and_notify_team_nodes():
+async def test_create_ticket_and_notify_team_nodes(monkeypatch):
+    persisted = []
+
+    monkeypatch.setattr(
+        db_provider_module,
+        "upsert_incident",
+        lambda incident: persisted.append(incident) or incident,
+    )
+
     created = await actions_module.create_ticket_node(
         {
             "incident_id": "inc-1",
@@ -752,9 +811,29 @@ async def test_create_ticket_and_notify_team_nodes():
     notified = await actions_module.notify_team_node(
         {
             "incident_id": "inc-1",
+            "raw_report": "Checkout fails with HTTP 500",
             "ticket": created["ticket"],
             "triage_summary": "Critical checkout outage.",
             "final_severity": "CRITICAL",
+            "world_model": {
+                "thinking_process": "debug trace",
+                "affected_service": "Ordering.API",
+                "incident_category": "RuntimeException",
+                "blast_radius": ["WebApp"],
+                "estimated_severity": "HIGH",
+                "severity_rationale": "legacy",
+                "temporal_context": "ongoing",
+                "affected_service_confidence": "INFERRED",
+                "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+            },
+            "entities": {
+                "thinking_process": "debug trace",
+                "error_code": "500",
+                "error_message": "NullReferenceException",
+                "endpoint_affected": "/api/orders",
+                "reporter_email": "hector@example.com",
+                "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+            },
         }
     )
 
@@ -763,6 +842,20 @@ async def test_create_ticket_and_notify_team_nodes():
     assert created["ticket"]["assigned_team"] == "Order Team"
     assert notified["status"].value == "TEAM_NOTIFIED"
     assert notified["notifications"]["team_notified"] is True
+    assert persisted[0]["raw_report"] == "Checkout fails with HTTP 500"
+    assert persisted[0]["world_model"] == {
+        "affected_service": "Ordering.API",
+        "incident_category": "RuntimeException",
+        "blast_radius": ["WebApp"],
+        "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+    }
+    assert persisted[0]["entities"] == {
+        "error_code": "500",
+        "error_message": "NullReferenceException",
+        "endpoint_affected": "/api/orders",
+        "reporter_email": "hector@example.com",
+        "epistemic_snapshot": {"observed": [], "inferred": [], "unknown": []},
+    }
 
 
 @pytest.mark.asyncio

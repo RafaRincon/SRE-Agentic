@@ -1,5 +1,7 @@
+import importlib
 import sys
 import types
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,17 +26,88 @@ class FakeGraph:
         return None
 
 
-def test_health_check():
-    graph = FakeGraph()
+def build_settings(**overrides):
+    data = {
+        "app_disable_admin_endpoints": False,
+        "app_admin_api_key": "test-admin-key",
+        "app_max_upload_bytes": 5 * 1024 * 1024,
+        "app_require_index_ready": False,
+        "log_level": "INFO",
+        "app_env": "development",
+        "cosmos_endpoint": "https://cosmos.test",
+        "cosmos_database": "sre",
+        "gemini_model": "gemini-test",
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+@pytest.fixture(autouse=True)
+def stub_runtime(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: build_settings(),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_startup_or_raise",
+        lambda: {"ready": True, "components": {}},
+    )
+
+
+@pytest.fixture
+def admin_headers():
+    return {"X-Admin-Api-Key": "test-admin-key"}
+
+
+def test_liveness_aliases():
+    with TestClient(main_module.app) as client:
+        live = client.get("/livez")
+        health = client.get("/health")
+
+    assert live.status_code == 200
+    assert health.status_code == 200
+    assert live.json()["status"] == "healthy"
+    assert health.json()["service"] == "sre-agent"
+
+
+def test_readyz_ready(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "_collect_readiness_status",
+        lambda require_index_ready=None: {
+            "service": "sre-agent",
+            "status": "ready",
+            "ready": True,
+            "components": {"database": {"ready": True}},
+        },
+    )
 
     with TestClient(main_module.app) as client:
-        response = client.get("/health")
+        response = client.get("/readyz")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "healthy"
-    assert payload["service"] == "sre-agent"
-    assert "timestamp" in payload
+    assert response.json()["ready"] is True
+
+
+def test_readyz_degraded(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "_collect_readiness_status",
+        lambda require_index_ready=None: {
+            "service": "sre-agent",
+            "status": "degraded",
+            "ready": False,
+            "components": {"code_index": {"ready": False, "chunk_count": 0}},
+        },
+    )
+
+    with TestClient(main_module.app) as client:
+        response = client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["components"]["code_index"]["ready"] is False
 
 
 def test_root_serves_frontend():
@@ -67,6 +140,10 @@ def test_incident_submission_success(monkeypatch):
         }
     )
     monkeypatch.setattr(main_module, "get_graph", lambda: graph)
+    async def fake_generate_embedding(*args, **kwargs):
+        return [0.1, 0.2, 0.3]
+
+    monkeypatch.setattr(main_module.llm_provider, "generate_embedding", fake_generate_embedding)
     monkeypatch.setattr(
         main_module.llm_provider,
         "generate_embedding",
@@ -79,10 +156,9 @@ def test_incident_submission_success(monkeypatch):
     )
     monkeypatch.setattr(
         main_module.db_provider,
-        "upsert_incident",
-        lambda incident: persisted.append(incident) or incident,
+        "find_duplicate_incident",
+        lambda **kwargs: None,
     )
-
     with TestClient(main_module.app) as client:
         response = client.post(
             "/incident",
@@ -107,6 +183,24 @@ def test_incident_submission_success(monkeypatch):
     assert submitted_state["raw_report"].startswith("Reporter: Hector (hector@example.com)")
     assert submitted_state["incident_id"] == payload["incident_id"]
 
+
+def test_incident_submission_rejects_unsupported_image():
+    with TestClient(main_module.app) as client:
+        response = client.post(
+            "/incident",
+            data={"report": "HTTP 500 on checkout"},
+            files={"image": ("error.txt", b"oops", "text/plain")},
+        )
+
+    assert response.status_code == 415
+    assert "Unsupported image type" in response.json()["detail"]
+
+
+def test_incident_submission_rejects_oversized_image(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: build_settings(app_max_upload_bytes=4),
     assert persisted[0]["incident_id"] == payload["incident_id"]
     assert persisted[0]["status"] == IncidentStatus.RECEIVED.value
     assert "image_data_b64" not in persisted[0]
@@ -144,6 +238,18 @@ def test_incident_submission_accepts_client_generated_incident_id(monkeypatch):
     with TestClient(main_module.app) as client:
         response = client.post(
             "/incident",
+            data={"report": "HTTP 500 on checkout"},
+            files={"image": ("error.png", b"12345", "image/png")},
+        )
+
+    assert response.status_code == 413
+    assert "Image exceeds" in response.json()["detail"]
+
+
+def test_incident_submission_returns_500_when_pipeline_fails(monkeypatch):
+    async def fake_generate_embedding(*args, **kwargs):
+        return [0.1, 0.2, 0.3]
+
             data={"incident_id": "client-incident-1", "report": "HTTP 500 on checkout"},
         )
 
@@ -167,6 +273,12 @@ def test_incident_submission_returns_500_when_pipeline_fails(monkeypatch):
         "find_duplicate_incident",
         lambda **_kwargs: None,
     )
+    monkeypatch.setattr(main_module.llm_provider, "generate_embedding", fake_generate_embedding)
+    monkeypatch.setattr(
+        main_module.db_provider,
+        "find_duplicate_incident",
+        lambda **kwargs: None,
+    )
 
     with TestClient(main_module.app) as client:
         response = client.post("/incident", data={"report": "HTTP 500 on checkout"})
@@ -189,6 +301,59 @@ def test_get_incident_success(monkeypatch):
     assert response.json()["id"] == "inc-1"
 
 
+@pytest.mark.parametrize(
+    "incident",
+    [
+        {
+            "id": "inc-legacy",
+            "status": IncidentStatus.TRIAGED.value,
+            "world_model": {
+                "affected_service": "Ordering.API",
+                "incident_category": "RuntimeException",
+                "blast_radius": ["WebApp"],
+                "estimated_severity": "HIGH",
+                "severity_rationale": "legacy-only",
+            },
+            "entities": {
+                "error_code": "500",
+                "thinking_process": "legacy-only",
+            },
+        },
+        {
+            "id": "inc-compact",
+            "status": IncidentStatus.TRIAGED.value,
+            "world_model": {
+                "affected_service": "Ordering.API",
+                "incident_category": "RuntimeException",
+                "blast_radius": ["WebApp"],
+            },
+            "entities": {
+                "error_code": "500",
+            },
+        },
+    ],
+)
+def test_get_incident_supports_legacy_and_compact_shapes(monkeypatch, incident):
+    monkeypatch.setattr(
+        main_module.db_provider,
+        "get_incident",
+        lambda incident_id: incident,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_graph",
+        lambda: types.SimpleNamespace(get_state=lambda config: None),
+    )
+
+    with TestClient(main_module.app) as client:
+        response = client.get(f"/incident/{incident['id']}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["world_model"]["affected_service"] == "Ordering.API"
+    assert payload["entities"]["error_code"] == "500"
+
+
 def test_get_incident_not_found(monkeypatch):
     monkeypatch.setattr(main_module.db_provider, "get_incident", lambda incident_id: None)
 
@@ -208,9 +373,9 @@ async def test_maybe_await_handles_sync_and_async_values():
     assert await main_module._maybe_await("sync") == "sync"
 
 
-def test_resolve_incident_success(monkeypatch):
+def test_resolve_incident_success(monkeypatch, admin_headers):
     stored = []
-    
+
     async def fake_index_resolved_incident(incident, resolution_notes):
         return {
             "chunks_indexed": 2,
@@ -242,6 +407,7 @@ def test_resolve_incident_success(monkeypatch):
         response = client.post(
             "/incident/inc-1/resolve",
             data={"resolution_notes": "Added null guard"},
+            headers=admin_headers,
         )
 
     assert response.status_code == 200
@@ -250,9 +416,17 @@ def test_resolve_incident_success(monkeypatch):
     assert payload["knowledge_indexed"] is True
     assert stored[0]["resolution_notes"] == "Added null guard"
     assert stored[0]["notifications"]["reporter_notified"] is True
+    assert stored[0]["notifications"]["reporter_notification_channel"] == "reporter:unavailable"
 
 
-def test_resolve_incident_rejects_wrong_state(monkeypatch):
+def test_resolve_incident_requires_admin_key():
+    with TestClient(main_module.app) as client:
+        response = client.post("/incident/inc-1/resolve")
+
+    assert response.status_code == 401
+
+
+def test_resolve_incident_rejects_wrong_state(monkeypatch, admin_headers):
     monkeypatch.setattr(
         main_module.db_provider,
         "get_incident",
@@ -260,13 +434,13 @@ def test_resolve_incident_rejects_wrong_state(monkeypatch):
     )
 
     with TestClient(main_module.app) as client:
-        response = client.post("/incident/inc-1/resolve")
+        response = client.post("/incident/inc-1/resolve", headers=admin_headers)
 
     assert response.status_code == 400
     assert "Cannot resolve incident" in response.json()["detail"]
 
 
-def test_list_incidents(monkeypatch):
+def test_list_incidents(monkeypatch, admin_headers):
     monkeypatch.setattr(
         main_module.db_provider,
         "list_incidents",
@@ -274,13 +448,13 @@ def test_list_incidents(monkeypatch):
     )
 
     with TestClient(main_module.app) as client:
-        response = client.get("/incidents")
+        response = client.get("/incidents", headers=admin_headers)
 
     assert response.status_code == 200
     assert len(response.json()) == 2
 
 
-def test_index_endpoints(monkeypatch):
+def test_index_endpoints(monkeypatch, admin_headers):
     async def fake_index_repo(force=False):
         return {"indexed": True, "force": force}
 
@@ -292,7 +466,7 @@ def test_index_endpoints(monkeypatch):
     monkeypatch.setattr(main_module.db_provider, "count_chunks", lambda: 7)
 
     with TestClient(main_module.app) as client:
-        trigger = client.post("/index?force=true")
+        trigger = client.post("/index?force=true", headers=admin_headers)
         status = client.get("/index/status")
 
     assert trigger.status_code == 200
@@ -300,7 +474,7 @@ def test_index_endpoints(monkeypatch):
     assert status.json() == {"status": "indexed", "chunk_count": 7}
 
 
-def test_index_endpoint_accepts_sync_indexer(monkeypatch):
+def test_index_endpoint_accepts_sync_indexer(monkeypatch, admin_headers):
     monkeypatch.setitem(
         sys.modules,
         "app.indexer.repo_indexer",
@@ -308,13 +482,13 @@ def test_index_endpoint_accepts_sync_indexer(monkeypatch):
     )
 
     with TestClient(main_module.app) as client:
-        trigger = client.post("/index")
+        trigger = client.post("/index", headers=admin_headers)
 
     assert trigger.status_code == 200
     assert trigger.json()["indexed"] is True
 
 
-def test_ledger_and_knowledge_endpoints(monkeypatch):
+def test_ledger_and_knowledge_endpoints(monkeypatch, admin_headers):
     async def fake_seed_historical_incidents():
         return {"seeded": 5}
 
@@ -332,9 +506,9 @@ def test_ledger_and_knowledge_endpoints(monkeypatch):
     )
 
     with TestClient(main_module.app) as client:
-        ledger = client.get("/incident/inc-1/ledger")
+        ledger = client.get("/incident/inc-1/ledger", headers=admin_headers)
         knowledge = client.get("/knowledge/status")
-        seed = client.post("/knowledge/seed")
+        seed = client.post("/knowledge/seed", headers=admin_headers)
 
     assert ledger.status_code == 200
     assert ledger.json()["entries"] == [{"event_type": "STATE_TRANSITION"}]
@@ -343,7 +517,7 @@ def test_ledger_and_knowledge_endpoints(monkeypatch):
     assert seed.json() == {"seeded": 5}
 
 
-def test_seed_endpoint_accepts_sync_seeder(monkeypatch):
+def test_seed_endpoint_accepts_sync_seeder(monkeypatch, admin_headers):
     monkeypatch.setitem(
         sys.modules,
         "app.indexer.seed_incidents",
@@ -351,7 +525,74 @@ def test_seed_endpoint_accepts_sync_seeder(monkeypatch):
     )
 
     with TestClient(main_module.app) as client:
-        response = client.post("/knowledge/seed")
+        response = client.post("/knowledge/seed", headers=admin_headers)
 
     assert response.status_code == 200
     assert response.json() == {"seeded": 2}
+
+
+def test_startup_fails_fast_on_missing_settings(monkeypatch):
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing settings")),
+    )
+
+    with pytest.raises(RuntimeError, match="missing settings"):
+        with TestClient(main_module.app):
+            pass
+
+
+def test_admin_endpoints_can_be_disabled(monkeypatch, admin_headers):
+    monkeypatch.setattr(
+        main_module,
+        "get_settings",
+        lambda: build_settings(app_disable_admin_endpoints=True),
+    )
+
+    with TestClient(main_module.app) as client:
+        response = client.get("/incidents", headers=admin_headers)
+
+    assert response.status_code == 404
+
+
+def test_cors_restricts_to_configured_origin(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("APP_CORS_ORIGINS", "https://allowed.example.com")
+    monkeypatch.setenv("APP_ENABLE_DOCS", "false")
+
+    reloaded = importlib.reload(main_module)
+    monkeypatch.setattr(
+        reloaded,
+        "_startup_or_raise",
+        lambda: {"ready": True, "components": {}},
+    )
+    monkeypatch.setattr(
+        reloaded,
+        "get_settings",
+        lambda: build_settings(app_env="production", app_cors_origins=["https://allowed.example.com"]),
+    )
+
+    with TestClient(reloaded.app) as client:
+        allowed = client.options(
+            "/health",
+            headers={
+                "Origin": "https://allowed.example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        blocked = client.options(
+            "/health",
+            headers={
+                "Origin": "https://blocked.example.com",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+
+    assert allowed.headers["access-control-allow-origin"] == "https://allowed.example.com"
+    assert "access-control-allow-origin" not in blocked.headers
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("APP_CORS_ORIGINS", raising=False)
+    monkeypatch.delenv("APP_ENABLE_DOCS", raising=False)
+    importlib.reload(main_module)

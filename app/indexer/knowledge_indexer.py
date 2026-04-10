@@ -4,8 +4,7 @@ from __future__ import annotations
 SRE Agent — Knowledge Flywheel Indexer
 
 Automatically converts resolved incidents into retrievable knowledge.
-This is the core of the virtuous cycle: every resolution makes
-the agent smarter for future incidents.
+This supports continuous retrieval enrichment from resolved incidents.
 
 The flywheel reads BOTH the incident document AND the full ledger
 trail to build rich knowledge chunks that capture:
@@ -98,8 +97,8 @@ def _build_resolution_chunks(
     """
     Convert a resolved incident into retrievable knowledge chunks.
 
-    Uses BOTH the incident document AND the ledger audit trail to build
-    comprehensive chunks that capture the full lifecycle.
+    Uses both the incident document and the ledger audit trail to build
+    chunks that capture the incident lifecycle.
 
     Generates up to 4 chunks:
     1. SYMPTOM — for matching future incidents by similar symptoms
@@ -250,7 +249,7 @@ def _build_reasoning_trace(
 ) -> str:
     """
     Build a condensed reasoning trace from the ledger entries.
-    This captures the agent's decision path for future reference.
+    This captures the recorded decision path for future reference.
     """
     lines = [f"REASONING TRACE — {service} — Incident {incident_id}"]
 
@@ -393,7 +392,7 @@ async def index_resolved_incident(
     """
     incident_id = incident.get("incident_id", incident.get("id", "unknown"))
 
-    # Step 1: Get the full ledger trail — this is the gold mine
+    # Step 1: Load the full ledger trail.
     ledger_entries = db_provider.get_ledger_entries(incident_id)
     logger.info(
         f"[flywheel] Fetched {len(ledger_entries)} ledger entries "

@@ -5,8 +5,8 @@ SRE Agent — Seed Historical Incidents
 
 Generates realistic synthetic incident data for the eShop application
 and indexes them into the sre_knowledge container. This provides the
-flywheel with initial "memory" so it can demonstrate historical
-correlation from the very first demo.
+flywheel with initial "memory" so retrieval has historical
+correlation from the first local run.
 
 These incidents are designed to cover common eShop failure modes:
 - NullReferenceException in OrdersController
@@ -490,4 +490,3 @@ async def seed_historical_incidents() -> dict:
             i["service_name"] for i in SEED_INCIDENTS
         )),
     }
-
